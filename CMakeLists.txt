@@ -13,6 +13,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 # Crucially, find the OpenCV package that cv_bridge depends on
 find_package(OpenCV REQUIRED)
@@ -32,6 +33,7 @@ ament_target_dependencies(localization_node
   "nav_msgs"
   "tf2_ros"
   "cv_bridge"
+  "visualization_msgs"
 )
 
 # Explicitly link OpenCV libraries to your target

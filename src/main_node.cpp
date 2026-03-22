@@ -6,8 +6,10 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/point.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
+#include <visualization_msgs/msg/marker.hpp>
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 
@@ -141,6 +143,7 @@ public:
         pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/amcl_pose", 10);
         particle_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("/particlecloud", 10);
         debug_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/vision_debug/image_raw", 10);
+        marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>("/projected_lines", 10);
 
         // --- 4. TF Broadcaster ---
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -168,6 +171,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr particle_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_image_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
 
     // TF Broadcaster
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
@@ -198,6 +202,36 @@ private:
 
         // 1. Run the Vision Processor to get the 2D floor points
         std::vector<Point2D> line_points = vision_processor_.extractFieldLines(latest_image_);
+
+        // --- Publish points ---
+        visualization_msgs::msg::Marker points_marker;
+        points_marker.header.frame_id = "base_link"; // Points are relative to the robot's base
+        points_marker.header.stamp = this->now();
+        points_marker.ns = "ipm_projection";
+        points_marker.id = 0;
+        points_marker.type = visualization_msgs::msg::Marker::POINTS;
+        points_marker.action = visualization_msgs::msg::Marker::ADD;
+        
+        // Point size in meters (2cm dots)
+        points_marker.scale.x = 0.02; 
+        points_marker.scale.y = 0.02;
+
+        // Color (Cyan: R=0, G=1, B=1)
+        points_marker.color.r = 0.0f;
+        points_marker.color.g = 1.0f;
+        points_marker.color.b = 1.0f;
+        points_marker.color.a = 1.0f; // Alpha (Opacity)
+
+        // Add all projected points to the marker
+        for (const auto& p : line_points) {
+            geometry_msgs::msg::Point gp;
+            gp.x = p.x; // Forward distance
+            gp.y = p.y; // Lateral distance
+            gp.z = 0.0; // Flat on the floor
+            points_marker.points.push_back(gp);
+        }
+
+        marker_pub_->publish(points_marker);
 
         // 2. VISUALIZATION: Publish the debug image showing extracted lines
         std_msgs::msg::Header header;

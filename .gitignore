@@ -1,0 +1,18 @@
+# ROS 2 build folders
+/build/
+/install/
+/log/
+
+# Ignore compiled files and libraries
+*.so
+*.a
+*.dll
+*.exe
+
+# Ignore VS Code specific files
+.vscode/
+
+# Ignore temporary files
+*~
+*.swp
+*.swo

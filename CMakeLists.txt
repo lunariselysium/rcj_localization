@@ -19,11 +19,15 @@ find_package(visualization_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 # Crucially, find the OpenCV package that cv_bridge depends on
 find_package(OpenCV REQUIRED)
+include_directories(include)
 
 # --- Add Your Executable ---
 # This tells cmake to build an executable file named "localization_node"
 # from your source file "src/main_node.cpp"
-add_executable(localization_node src/main_node.cpp)
+add_executable(localization_node 
+  src/main_node.cpp
+  src/particle_filter.cpp
+)
 
 # --- Link Libraries ---
 # This is the most important part. It connects your code to the ROS 2 and OpenCV libraries.

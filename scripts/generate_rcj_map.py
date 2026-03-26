@@ -13,7 +13,7 @@ def generate_map():
     cv2.rectangle(img, (cx - 79, cy - 109), (cx + 79, cy + 109), 0, 2)
     
     # --- Draw Center Line ---
-    cv2.line(img, (cx - 79, cy), (cx + 79, cy), 0, 2)
+    # cv2.line(img, (cx - 79, cy), (cx + 79, cy), 0, 2)
     
     # --- Draw Center Circle ---
     # Diameter 60 -> Radius 30
@@ -42,8 +42,8 @@ def generate_map():
     cv2.line(img, (cx + 45, cy + 109), (cx + 45, cy + 109 - 10), 0, 2)
 
     # --- Draw Dots (Points) ---
-    # Located at +/- 40 X, and +/- 45 Y from center
-    dot_offsets =[(40, 45), (-40, 45), (40, -45), (-40, -45)]
+    # Located at +/- 39 X, and +/- 64.5 Y from center
+    dot_offsets =[(39, 65), (-39, 65), (39, -65), (-39, -65)]
     for px, py in dot_offsets:
         cv2.circle(img, (cx + px, cy + py), 2, 0, -1) # Draw a filled circle as a dot
 
@@ -54,7 +54,7 @@ def generate_map():
     # Generate the ROS YAML config file
     yaml_content = f"""image: rcj_map.png
 resolution: 0.01
-origin:[-1.0, -1.3, 0.0]
+origin: [-1.0, -1.3, 0.0]
 negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.196

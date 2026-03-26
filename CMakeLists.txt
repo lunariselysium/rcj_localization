@@ -17,6 +17,7 @@ find_package(nav_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
+find_package(OpenMP REQUIRED)
 # Crucially, find the OpenCV package that cv_bridge depends on
 find_package(OpenCV REQUIRED)
 include_directories(include)
@@ -42,8 +43,10 @@ ament_target_dependencies(localization_node
   "visualization_msgs"
 )
 
-# Explicitly link OpenCV libraries to your target
-target_link_libraries(localization_node ${OpenCV_LIBRARIES})
+target_link_libraries(localization_node 
+  ${OpenCV_LIBRARIES}
+  OpenMP::OpenMP_CXX
+)
 
 
 # --- Installation Rules ---

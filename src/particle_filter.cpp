@@ -1,6 +1,7 @@
 #include "rcj_localization/particle_filter.hpp"
 #include <cmath>
 #include <algorithm>
+#include <omp.h>
 
 namespace rcj_loc {
 
@@ -73,13 +74,18 @@ void ParticleFilter::updateWeights(const std::vector<Point2D>& local_observation
     double weight_sum = 0.0;
     double sigma_hit = 0.10; // We expect camera points to be accurate within 10cm of real lines
 
+    #pragma omp parrallel for reduction(+:weight_sum)
     for (auto& p : particles_) {
         double log_weight = 0.0;
 
+        // Preconpute trig
+        double cos_t = cos(p.theta);
+        double sin_t = sin(p.theta);
+
         for (const auto& obs : local_observations) {
             // 1. Transform the local camera point to the global map frame using the particle's pose
-            double global_x = p.x + (obs.x * cos(p.theta)) - (obs.y * sin(p.theta));
-            double global_y = p.y + (obs.x * sin(p.theta)) + (obs.y * cos(p.theta));
+            double global_x = p.x + (obs.x * cos_t) - (obs.y * sin_t);
+            double global_y = p.y + (obs.x * sin_t) + (obs.y * cos_t);
 
             // 2. Convert global coordinate (meters) to map pixel
             int px = std::round((global_x - map_origin_x_) / map_resolution_);

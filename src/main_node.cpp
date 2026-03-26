@@ -82,11 +82,15 @@ public:
         }
 
         // 4. Extract points and apply IPM (Inverse Perspective Mapping)
-        for (int v_cropped = 0; v_cropped < filtered_mask.rows; v_cropped++) {
-            for (int u = 0; u < filtered_mask.cols; u++) {
-                
-                // If pixel is white (value is 255)
-                if (filtered_mask.at<uchar>(v_cropped, u) == 255) {
+        int rows = filtered_mask.rows;
+        int cols = filtered_mask.cols;
+
+        for (int v_cropped = 0; v_cropped < rows; v_cropped++) {
+            // Get a pointer to the start of this row
+            const uchar* row_ptr = filtered_mask.ptr<uchar>(v_cropped);
+
+            for (int u = 0; u < cols; u++) {
+                if (row_ptr[u] == 255) {
                     
                     // Re-add the cropped height to get original image Y coordinate
                     int v = v_cropped + horizon_y;
@@ -114,6 +118,17 @@ public:
         // --- FOR DEBUG VISUALIZATION ONLY ---
         cv::Mat green_color(cropped_img.size(), CV_8UC3, cv::Scalar(0, 255, 0));
         green_color.copyTo(cropped_img, filtered_mask);
+
+        // Cap amount of points
+        if (local_points.size() > 5000) {
+            std::vector<Point2D> decimated_points;
+            int step = local_points.size() / 5000;
+            for (size_t i = 0; i < local_points.size(); i += step) {
+                decimated_points.push_back(local_points[i]);
+                if (decimated_points.size() >= 5000) break;
+            }
+            return decimated_points;
+        }
 
         return local_points;
     }
@@ -208,6 +223,7 @@ private:
 
         // 1. Run Vision Processor
         auto points = vision_processor_.extractFieldLines(frame);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "Extracted Points: " << points.size());
 
         // 2. Safely store the points for the Particle Filter to use
         {

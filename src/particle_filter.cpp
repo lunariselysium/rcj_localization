@@ -107,6 +107,19 @@ void ParticleFilter::updateWeights(const std::vector<Point2D>& local_observation
         weight_sum += p.weight;
     }
 
+    // Calculate the average weight for alpha tracking
+    double avg_weight = weight_sum / num_particles_;
+    
+    // If it's the first run, initialize them
+    if (alpha_slow_ == 0.0) {
+        alpha_slow_ = avg_weight;
+        alpha_fast_ = avg_weight;
+    } else {
+        // Update the rolling averages
+        alpha_fast_ += alpha_fast_rate_ * (avg_weight - alpha_fast_);
+        alpha_slow_ += alpha_slow_rate_ * (avg_weight - alpha_slow_);
+    }
+
     // Normalize weights so they all add up to 1.0
     if (weight_sum > 0.0) {
         for (auto& p : particles_) {
@@ -139,6 +152,29 @@ void ParticleFilter::resample() {
         Particle survivor = particles_[i];
         survivor.weight = 1.0 / num_particles_;
         new_particles.push_back(survivor);
+    }
+
+    // Alpha tracking to add particles when needed
+    // If fast average drops below slow average, lost
+    double p_random = std::max(0.0, 1.0 - (alpha_fast_ / alpha_slow_));
+    
+    // Limit to a maximum of 25% random injection to prevent total chaos
+    p_random = std::min(p_random, 0.25); 
+
+    int random_count = num_particles_ * p_random; 
+    
+    // Calculate the map boundaries dynamically based on loaded map
+    double map_end_x = map_origin_x_ + (distance_map_.cols * map_resolution_);
+    double map_end_y = map_origin_y_ + (distance_map_.rows * map_resolution_);
+
+    std::uniform_real_distribution<double> dist_x(map_origin_x_, map_end_x);
+    std::uniform_real_distribution<double> dist_y(map_origin_y_, map_end_y);
+    std::uniform_real_distribution<double> dist_theta(-M_PI, M_PI);
+
+    for(int j = 0; j < random_count; j++) {
+        new_particles[num_particles_ - 1 - j] = {
+            dist_x(gen_), dist_y(gen_), dist_theta(gen_), 1.0 / num_particles_
+        };
     }
 
     particles_ = new_particles;

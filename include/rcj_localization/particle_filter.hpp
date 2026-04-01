@@ -32,7 +32,9 @@ public:
     void setMap(const nav_msgs::msg::OccupancyGrid::SharedPtr& map_msg);
 
     // 3. Motion Model (The "Spread")
-    void predict(double absolute_yaw);
+    // If dx,dy are provided (non-zero), move particles by odometry delta plus noise.
+    // Otherwise use random walk for position.
+    void predict(double absolute_yaw, double dx = 0.0, double dy = 0.0);
 
     // 4. Sensor Model (Scoring against the map)
     void updateWeights(const std::vector<Point2D>& local_observations);

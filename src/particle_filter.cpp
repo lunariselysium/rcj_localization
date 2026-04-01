@@ -52,15 +52,21 @@ void ParticleFilter::setMap(const nav_msgs::msg::OccupancyGrid::SharedPtr& map_m
     map_initialized_ = true;
 }
 
-void ParticleFilter::predict(double absolute_yaw) {
-    // Because we don't have odometry yet, we use a "Random Walk".
-    // We add a tiny bit of random noise to X and Y every frame to spread the particles out.
+void ParticleFilter::predict(double absolute_yaw, double dx, double dy) {
+    // Odometry-based motion model with noise.
     std::normal_distribution<double> noise_xy(0.0, 0.05); // 5cm standard deviation noise
     std::normal_distribution<double> noise_theta(0.0, 0.1); // Small noise for yaw
 
     for (auto& p : particles_) {
-        p.x += noise_xy(gen_);
-        p.y += noise_xy(gen_);
+        if (dx == 0.0 && dy == 0.0) {
+            // No odometry delta: random walk
+            p.x += noise_xy(gen_);
+            p.y += noise_xy(gen_);
+        } else {
+            // Apply odometry delta with additive noise
+            p.x += dx + noise_xy(gen_);
+            p.y += dy + noise_xy(gen_);
+        }
         
         // --- BREAKING SYMMETRY ---
         // We force the particle to face the direction the IMU/Compass says we are facing.

@@ -9,6 +9,7 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 #include <mutex>
@@ -165,6 +166,10 @@ public:
             "/map", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local(),
             std::bind(&RcjLocalizationNode::mapCallback, this, std::placeholders::_1));
 
+        odom_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "/wheel_odometry", 10,
+            std::bind(&RcjLocalizationNode::odomCallback, this, std::placeholders::_1));
+
         pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/amcl_pose", 10);
         particle_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("/particlecloud", 10);
         debug_image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/vision_debug/image_raw", 10);
@@ -183,6 +188,10 @@ public:
 private:
     int num_particles_;
     float current_yaw_ = 0.0;
+    // Wheel odometry integration
+    double odom_x_ = 0.0, odom_y_ = 0.0, odom_theta_ = 0.0;
+    double prev_odom_x_ = 0.0, prev_odom_y_ = 0.0, prev_odom_theta_ = 0.0;
+    bool odom_initialized_ = false;
     bool map_received_ = false;
 
     VisionProcessor vision_processor_;
@@ -196,6 +205,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr yaw_sub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr odom_sub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr particle_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_image_pub_;
@@ -211,6 +221,34 @@ private:
         RCLCPP_INFO(this->get_logger(), "Map received. Building distance transform field...");
         pf_->setMap(msg);
         map_received_ = true;
+    }
+
+    void odomCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+        // Extract position
+        double x = msg->pose.pose.position.x;
+        double y = msg->pose.pose.position.y;
+        // Extract yaw from quaternion
+        tf2::Quaternion q(
+            msg->pose.pose.orientation.x,
+            msg->pose.pose.orientation.y,
+            msg->pose.pose.orientation.z,
+            msg->pose.pose.orientation.w);
+        tf2::Matrix3x3 m(q);
+        double roll, pitch, yaw;
+        m.getRPY(roll, pitch, yaw);
+        
+        // Store current odometry
+        odom_x_ = x;
+        odom_y_ = y;
+        odom_theta_ = yaw;
+        
+        if (!odom_initialized_) {
+            // First message, initialize previous values
+            prev_odom_x_ = odom_x_;
+            prev_odom_y_ = odom_y_;
+            prev_odom_theta_ = odom_theta_;
+            odom_initialized_ = true;
+        }
     }
 
     void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg) {
@@ -272,7 +310,17 @@ private:
         }
 
         // --- THE CORE AMCL MATH ---
-        pf_->predict(current_yaw_);
+        // Odometry delta
+        double dx = 0.0, dy = 0.0;
+        if (odom_initialized_) {
+            dx = odom_x_ - prev_odom_x_;
+            dy = odom_y_ - prev_odom_y_;
+            // Update previous odometry for next iteration
+            prev_odom_x_ = odom_x_;
+            prev_odom_y_ = odom_y_;
+            prev_odom_theta_ = odom_theta_;
+        }
+        pf_->predict(current_yaw_, dx, dy);
         pf_->updateWeights(current_obs);
         pf_->resample();
 

@@ -10,6 +10,7 @@ endif()
 # Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(message_filters REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -194,6 +195,30 @@ target_link_libraries(white_line_lab_cluster_node
   ${OpenCV_LIBRARIES}
 )
 
+add_executable(white_line_lab_morph_node src/white_line_lab_morph_node.cpp)
+ament_target_dependencies(white_line_lab_morph_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_lab_morph_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_skeleton_filter_node src/white_line_skeleton_filter_node.cpp)
+ament_target_dependencies(white_line_skeleton_filter_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+  message_filters
+)
+target_link_libraries(white_line_skeleton_filter_node
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
 add_executable(white_line_probability_node src/white_line_probability_node.cpp)
 ament_target_dependencies(white_line_probability_node
   rclcpp
@@ -213,6 +238,8 @@ install(TARGETS
   white_line_cluster_node
   white_line_hsv_cluster_node
   white_line_lab_cluster_node
+  white_line_lab_morph_node
+  white_line_skeleton_filter_node
   white_line_probability_node
   DESTINATION lib/${PROJECT_NAME}
 )

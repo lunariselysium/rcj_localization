@@ -9,130 +9,12 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
-#include <cv_bridge/cv_bridge.hpp>
+#include <cv_bridge/cv_bridge.h> //edited
 #include <opencv2/opencv.hpp>
 #include <mutex>
 
 #include "rcj_localization/particle_filter.hpp"
-
-
-struct Point2D {
-    double x; // Forward distance from robot (meters)
-    double y; // Lateral distance from robot (meters) (Left is positive)
-};
-
-class VisionProcessor {
-public:
-    // Camera Extrinsics (Physical setup on the robot)
-    double camera_height = 0.20; // 20 cm off the ground
-    double camera_pitch = 30.0 * (M_PI / 180.0); // Tilted down 30 degrees
-
-    // Camera Intrinsics
-    double fx = 549.45489; // data[0] from projection_matrix
-    double fy = 556.93243; // data[5] from projection_matrix
-    double cx = 492.11415; // data[2] from projection_matrix
-    double cy = 312.57320; // data[6] from projection_matrix
-
-    // Process image and return a list of points on the floor (in meters)
-    std::vector<Point2D> extractFieldLines(cv::Mat& img) {
-        std::vector<Point2D> local_points;
-
-        // 1. Horizon Crop (Ignore the top part of the image where the field isn't)
-        int horizon_y = img.rows / 10; // Crop top 1/xth
-        cv::Rect roi(0, horizon_y, img.cols, img.rows - horizon_y);
-        cv::Mat cropped_img = img(roi);
-
-        // 2. Convert to HSV
-        cv::Mat hsv;
-        cv::cvtColor(cropped_img, hsv, cv::COLOR_BGR2HSV);
-
-        // 3. Threshold for Lines
-        cv::Mat white_mask;
-        cv::Scalar lower_white(0, 0, 158);
-        cv::Scalar upper_white(180, 180, 205);
-        cv::inRange(hsv, lower_white, upper_white, white_mask);
-
-        cv::Mat black_mask;
-        cv::inRange(hsv, cv::Scalar(0, 10, 42), cv::Scalar(180, 255, 102), black_mask); //10 filters out everything for now
-
-        // Combine
-        cv::Mat feature_mask;
-        cv::bitwise_or(white_mask, black_mask, feature_mask);
-
-        // Optional: Erode/Dilate to remove tiny noise pixels
-        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-        cv::morphologyEx(feature_mask, feature_mask, cv::MORPH_OPEN, kernel);
-
-        // --- Blob / Contour Filtering ---
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(feature_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-        // Create a new black mask to draw only the valid contours onto
-        cv::Mat filtered_mask = cv::Mat::zeros(feature_mask.size(), CV_8UC1);
-
-        double min_area = 50.0; // Min pixel area to be considered a line segment
-        double max_area = 80000.0; // Max area to filter out huge white blobs (like a wall)
-
-        for (const auto& contour : contours) {
-            double area = cv::contourArea(contour);
-            if (area > min_area && area < max_area) {
-                // Draw this valid contour onto our new mask
-                cv::drawContours(filtered_mask, std::vector<std::vector<cv::Point>>{contour}, -1, cv::Scalar(255), cv::FILLED);
-            }
-        }
-
-        // 4. Extract points and apply IPM (Inverse Perspective Mapping)
-        int rows = filtered_mask.rows;
-        int cols = filtered_mask.cols;
-
-        for (int v_cropped = 0; v_cropped < rows; v_cropped++) {
-            // Get a pointer to the start of this row
-            const uchar* row_ptr = filtered_mask.ptr<uchar>(v_cropped);
-
-            for (int u = 0; u < cols; u++) {
-                if (row_ptr[u] == 255) {
-                    
-                    // Re-add the cropped height to get original image Y coordinate
-                    int v = v_cropped + horizon_y;
-
-                    // --- INVERSE PERSPECTIVE MAPPING MATH ---
-                    // Calculate ray angle vertically based on pixel 'v'
-                    double ray_angle_y = atan((v - cy) / fy);
-
-                    // If the ray is pointing above the horizon, skip it (can't hit the floor)
-                    if (camera_pitch + ray_angle_y <= 0) continue;
-
-                    // Forward distance (X in ROS)
-                    double distance_x = camera_height / tan(camera_pitch + ray_angle_y);
-
-                    // Lateral distance (Y in ROS)
-                    // Note: OpenCV 'u' goes left-to-right. ROS 'Y' goes right-to-left.
-                    double distance_y = distance_x * (cx - u) / fx;
-
-                    // Save the projected 2D floor point
-                    local_points.push_back({distance_x, distance_y});
-                }
-            }
-        }
-
-        // --- FOR DEBUG VISUALIZATION ONLY ---
-        cv::Mat green_color(cropped_img.size(), CV_8UC3, cv::Scalar(0, 255, 0));
-        green_color.copyTo(cropped_img, filtered_mask);
-
-        // Cap amount of points
-        if (local_points.size() > 5000) {
-            std::vector<Point2D> decimated_points;
-            int step = local_points.size() / 5000;
-            for (size_t i = 0; i < local_points.size(); i += step) {
-                decimated_points.push_back(local_points[i]);
-                if (decimated_points.size() >= 5000) break;
-            }
-            return decimated_points;
-        }
-
-        return local_points;
-    }
-};
+#include "rcj_localization/vision_processor.hpp"
 
 
 
@@ -185,7 +67,7 @@ private:
     float current_yaw_ = 0.0;
     bool map_received_ = false;
 
-    VisionProcessor vision_processor_;
+    rcj_loc::vision::VisionProcessor vision_processor_;
     std::unique_ptr<rcj_loc::ParticleFilter> pf_;
     
     // Thread safety for sharing observations between camera callback and timer loop

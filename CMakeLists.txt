@@ -22,6 +22,36 @@ find_package(OpenMP REQUIRED)
 find_package(OpenCV REQUIRED)
 include_directories(include)
 
+# Vision processor reusable library
+add_library(vision_processor
+  src/vision_processor.cpp
+)
+
+target_link_libraries(vision_processor
+  ${OpenCV_LIBRARIES}
+)
+
+add_library(white_line_debug_utils
+  src/white_line_debug_utils.cpp
+)
+
+target_link_libraries(white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_library(white_line_preprocessing
+  src/white_line_preprocessing.cpp
+)
+
+ament_target_dependencies(white_line_preprocessing
+  rclcpp
+)
+
+target_link_libraries(white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
 # --- Add Your Executable ---
 # This tells cmake to build an executable file named "localization_node"
 # from your source file "src/main_node.cpp"
@@ -44,8 +74,27 @@ ament_target_dependencies(localization_node
 )
 
 target_link_libraries(localization_node 
+  vision_processor
   ${OpenCV_LIBRARIES}
   OpenMP::OpenMP_CXX
+)
+
+# Standalone vision debug node
+add_executable(vision_processor_node
+  src/vision_processor_node.cpp
+)
+
+ament_target_dependencies(vision_processor_node
+  "rclcpp"
+  "sensor_msgs"
+  "geometry_msgs"
+  "cv_bridge"
+  "visualization_msgs"
+)
+
+target_link_libraries(vision_processor_node
+  vision_processor
+  ${OpenCV_LIBRARIES}
 )
 
 
@@ -53,6 +102,7 @@ target_link_libraries(localization_node
 # This tells colcon where to put the files so `ros2 run` can find them.
 install(TARGETS
   localization_node
+  vision_processor_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -68,10 +118,102 @@ ament_target_dependencies(hsv_tuner
   rclcpp
   sensor_msgs
   cv_bridge
-  OpenCV
+)
+target_link_libraries(hsv_tuner
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_edge_node src/white_line_edge_node.cpp)
+ament_target_dependencies(white_line_edge_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_edge_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_preprocess_node src/white_line_preprocess_node.cpp)
+ament_target_dependencies(white_line_preprocess_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_preprocess_node
+  white_line_preprocessing
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_adaptive_threshold_node src/white_line_adaptive_threshold_node.cpp)
+ament_target_dependencies(white_line_adaptive_threshold_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_adaptive_threshold_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_cluster_node src/white_line_cluster_node.cpp)
+ament_target_dependencies(white_line_cluster_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_cluster_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_hsv_cluster_node src/white_line_hsv_cluster_node.cpp)
+ament_target_dependencies(white_line_hsv_cluster_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_hsv_cluster_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_lab_cluster_node src/white_line_lab_cluster_node.cpp)
+ament_target_dependencies(white_line_lab_cluster_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_lab_cluster_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
+add_executable(white_line_probability_node src/white_line_probability_node.cpp)
+ament_target_dependencies(white_line_probability_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_probability_node
+  white_line_preprocessing
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
 )
 install(TARGETS
   hsv_tuner
+  white_line_edge_node
+  white_line_preprocess_node
+  white_line_adaptive_threshold_node
+  white_line_cluster_node
+  white_line_hsv_cluster_node
+  white_line_lab_cluster_node
+  white_line_probability_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

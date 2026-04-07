@@ -1,11 +1,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include <cv_bridge/cv_bridge.hpp>
+#include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
 
 // Globals for trackbar access
-int h_min = 0, s_min = 0, v_min = 180;
-int h_max = 180, s_max = 40, v_max = 255;
+int h_min = 0, s_min = 0, v_min = 46;
+int h_max = 180, s_max = 220, v_max = 100;
 
 void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg) {
     cv::Mat frame;

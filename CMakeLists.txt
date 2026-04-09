@@ -70,8 +70,21 @@ ament_target_dependencies(hsv_tuner
   cv_bridge
   OpenCV
 )
+
+# --- Camera Tuner ---
+add_executable(camera_tuner src/camera_tuner_node.cpp)
+ament_target_dependencies(camera_tuner
+  rclcpp
+  std_msgs
+  sensor_msgs
+  cv_bridge
+  visualization_msgs
+  geometry_msgs
+  OpenCV
+)
 install(TARGETS
   hsv_tuner
+  camera_tuner
   DESTINATION lib/${PROJECT_NAME}
 )
 

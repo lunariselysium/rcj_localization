@@ -53,13 +53,21 @@ void ParticleFilter::setMap(const nav_msgs::msg::OccupancyGrid::SharedPtr& map_m
 }
 
 void ParticleFilter::predict(double absolute_yaw, double dx, double dy) {
+    // Caluculate how far robot actually moved
+    double distance_moved = std::sqrt(dx*dx + dy*dy);
+    bool is_stationary = (distance_moved < 0.001); // 1mm
+
+    // Dynamic noise
+    double xy_std_dev = is_stationary ? 0.002 : (0.02 + distance_moved * 0.1);
+    double theta_std_dev = is_stationary ? 0.01 : 0.05;
+
     // Odometry-based motion model with noise.
-    std::normal_distribution<double> noise_xy(0.0, 0.05); // 5cm standard deviation noise
-    std::normal_distribution<double> noise_theta(0.0, 0.1); // Small noise for yaw
+    std::normal_distribution<double> noise_xy(0.0, xy_std_dev);
+    std::normal_distribution<double> noise_theta(0.0, theta_std_dev);
 
     for (auto& p : particles_) {
-        if (dx == 0.0 && dy == 0.0) {
-            // No odometry delta: random walk
+        if (is_stationary) {
+            // No movement then add small noise
             p.x += noise_xy(gen_);
             p.y += noise_xy(gen_);
         } else {

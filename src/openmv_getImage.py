@@ -15,6 +15,12 @@ frame_count = 0
 sensor.reset()
 sensor.set_pixformat(sensor.RGB565)
 sensor.set_framesize(sensor.XGA)
+
+sensor.set_auto_exposure(False, exposure_us=100000)  # 10000us = 10ms
+# 关闭自动增益（非常重要！）
+sensor.set_auto_gain(False, gain_db=15)
+
+
 sensor.skip_frames(time=2000)
 
 usb = pyb.USB_VCP()

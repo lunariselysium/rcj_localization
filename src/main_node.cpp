@@ -9,7 +9,13 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
-#include <cv_bridge/cv_bridge.hpp> //edited
+#if __has_include(<cv_bridge/cv_bridge.hpp>)
+#include <cv_bridge/cv_bridge.hpp>
+#elif __has_include(<cv_bridge/cv_bridge.h>)
+#include <cv_bridge/cv_bridge.h>
+#else
+#error "cv_bridge header not found"
+#endif
 #include <opencv2/opencv.hpp>
 #include <mutex>
 

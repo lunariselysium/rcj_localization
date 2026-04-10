@@ -4,7 +4,13 @@
 #include <string>
 #include <vector>
 
+#if __has_include(<cv_bridge/cv_bridge.hpp>)
 #include <cv_bridge/cv_bridge.hpp>
+#elif __has_include(<cv_bridge/cv_bridge.h>)
+#include <cv_bridge/cv_bridge.h>
+#else
+#error "cv_bridge header not found"
+#endif
 #include <message_filters/subscriber.hpp>
 #include <message_filters/sync_policies/exact_time.hpp>
 #include <message_filters/synchronizer.hpp>

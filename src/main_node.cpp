@@ -9,7 +9,7 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
-#include <cv_bridge/cv_bridge.h> //edited
+#include <cv_bridge/cv_bridge.hpp> //edited
 #include <opencv2/opencv.hpp>
 #include <mutex>
 

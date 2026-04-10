@@ -203,7 +203,7 @@ void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg,
     cv::inRange(hsv, lower_black, upper_black, black_mask);
     cv::bitwise_or(mask, black_mask, mask);
     cv::imshow("Line Mask", mask);
-    cv::waitKey(1);
+    // cv::waitKey(1);
 }
 
 int main(int argc, char **argv) {
@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
     marker_pub = node->create_publisher<visualization_msgs::msg::Marker>("/projected_lines", 10);
 
     auto sub = node->create_subscription<sensor_msgs::msg::Image>(
-        "/camera/image_raw", 10,
+        "/camera/image_raw", rclcpp::SensorDataQoS(),
         [node](const sensor_msgs::msg::Image::SharedPtr msg) {
             imageCallback(msg, node);
         });
@@ -229,7 +229,14 @@ int main(int argc, char **argv) {
     RCLCPP_INFO(node->get_logger(), "Camera Tuner Started. Adjust height and pitch.");
     RCLCPP_INFO(node->get_logger(), "Pitch: 0 = -90°, 90 = 0°, 180 = +90°");
 
-    rclcpp::spin(node);
+    while (rclcpp::ok()) {
+        // Process any pending ROS callbacks (like imageCallback)
+        rclcpp::spin_some(node);
+        
+        // Process OpenCV GUI events (wait 10ms). This unfreezes the window!
+        cv::waitKey(10); 
+    }
+
     cv::destroyAllWindows();
     rclcpp::shutdown();
     return 0;

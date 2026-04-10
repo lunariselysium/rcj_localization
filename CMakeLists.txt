@@ -110,6 +110,7 @@ install(TARGETS
 # --- Install Python Scripts ---
 install(PROGRAMS
   "scripts/yaw_publisher.py"
+  "src/image_publisher.py"
   DESTINATION lib/${PROJECT_NAME}
 )
 

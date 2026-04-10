@@ -14,6 +14,7 @@ namespace {
 
 constexpr int kByteMax = 255;
 constexpr char kControlsWindow[] = "Lab Morph Controls";
+constexpr char kOriginalWindow[] = "Lab Morph Original";
 constexpr char kWhiteCandidateWindow[] = "Lab Morph White Candidate";
 constexpr char kWhiteMorphWindow[] = "Lab Morph White Morph";
 constexpr char kGreenMaskWindow[] = "Lab Morph Green Mask";
@@ -108,7 +109,7 @@ public:
         this->declare_parameter("white_b_center", 128);
         this->declare_parameter("white_a_tol", 14);
         this->declare_parameter("white_b_tol", 14);
-        this->declare_parameter("green_a_max", 120);
+        this->declare_parameter("green_a_max", 115);
         this->declare_parameter("green_b_min", 83);
         this->declare_parameter("green_b_max", 170);
         this->declare_parameter("black_enhanced_max", 123);
@@ -203,6 +204,7 @@ private:
             return;
         }
 
+        cv::namedWindow(kOriginalWindow, cv::WINDOW_NORMAL);
         cv::namedWindow(kWhiteCandidateWindow, cv::WINDOW_NORMAL);
         cv::namedWindow(kWhiteMorphWindow, cv::WINDOW_NORMAL);
         cv::namedWindow(kGreenMaskWindow, cv::WINDOW_NORMAL);
@@ -242,6 +244,7 @@ private:
             return;
         }
 
+        cv::destroyWindow(kOriginalWindow);
         cv::destroyWindow(kWhiteCandidateWindow);
         cv::destroyWindow(kWhiteMorphWindow);
         cv::destroyWindow(kGreenMaskWindow);
@@ -380,6 +383,7 @@ private:
         debug_pub_->publish(*cv_bridge::CvImage(msg->header, "bgr8", overlay).toImageMsg());
 
         if (windows_initialized_) {
+            cv::imshow(kOriginalWindow, frame);
             cv::imshow(kWhiteCandidateWindow, raw_white_mask);
             cv::imshow(kWhiteMorphWindow, white_morph_mask);
             cv::imshow(kGreenMaskWindow, green_mask);
@@ -390,6 +394,11 @@ private:
             // Disabled debug window: combined overlay visualization.
             // cv::imshow(kOverlayWindow, overlay);
 
+            resizeWindowToFitImage(
+                kOriginalWindow,
+                frame,
+                display_max_width_,
+                display_max_height_);
             resizeWindowToFitImage(
                 kWhiteCandidateWindow,
                 raw_white_mask,

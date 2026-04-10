@@ -33,6 +33,9 @@ def generate_launch_description():
                     "green_mask_topic": f"/{morph_node_name}/green_mask",
                     "black_mask_topic": f"/{morph_node_name}/black_mask",
                     "noise_mask_topic": f"/{morph_node_name}/noise_mask",
+                    "orientation_window_radius_px": 5,
+                    "min_orientation_neighbors": 6,
+                    "enable_image_view": False,
                 }
             ],
         ),

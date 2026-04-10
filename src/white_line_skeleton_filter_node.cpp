@@ -17,13 +17,15 @@
 
 namespace {
 
-constexpr char kMorphWindow[] = "Skeleton Filter Morph";
-constexpr char kSkeletonWindow[] = "Skeleton Filter Skeleton";
-constexpr char kSideSupportWindow[] = "Skeleton Filter Side Support";
-constexpr char kSupportedSkeletonWindow[] = "Skeleton Filter Supported Skeleton";
-constexpr char kReconstructedWindow[] = "Skeleton Filter Reconstructed";
-constexpr char kWhiteMaskWindow[] = "Skeleton Filter White Mask";
-constexpr char kDebugWindow[] = "Skeleton Filter Debug";
+constexpr char kMorphWindow[] = "Skeleton Filter Input Morph Mask";
+constexpr char kSkeletonWindow[] = "Skeleton Filter Skeletonization";
+constexpr char kOrientationValidWindow[] = "Skeleton Filter Orientation Valid";
+constexpr char kSideSupportWindow[] = "Skeleton Filter Side Color Filter";
+constexpr char kWidthSupportedWindow[] = "Skeleton Filter Width Filter";
+constexpr char kSupportedSkeletonWindow[] = "Skeleton Filter Length Filter";
+constexpr char kReconstructedWindow[] = "Skeleton Filter Reconstruction";
+constexpr char kWhiteMaskWindow[] = "Skeleton Filter Final White Mask";
+constexpr char kDebugWindow[] = "Skeleton Filter Composite Debug";
 
 cv::Size fitWithinBounds(const cv::Size &image_size, int max_width, int max_height) {
     const int safe_max_width = std::max(1, max_width);
@@ -310,7 +312,9 @@ cv::Mat createDebugComposite(
     const cv::Mat &green_mask,
     const cv::Mat &black_mask,
     const cv::Mat &noise_mask,
+    const cv::Mat &orientation_valid_mask,
     const cv::Mat &side_support_mask,
+    const cv::Mat &width_supported_skeleton_mask,
     const cv::Mat &supported_skeleton_mask,
     const cv::Mat &white_mask) {
     cv::Mat debug_image(green_mask.size(), CV_8UC3, cv::Scalar(30, 70, 30));
@@ -322,8 +326,16 @@ cv::Mat createDebugComposite(
         rcj_loc::vision::debug::createMaskOverlay(debug_image, noise_mask, cv::Scalar(255, 0, 255));
     debug_image = rcj_loc::vision::debug::createMaskOverlay(
         debug_image,
+        orientation_valid_mask,
+        cv::Scalar(0, 128, 255));
+    debug_image = rcj_loc::vision::debug::createMaskOverlay(
+        debug_image,
         side_support_mask,
         cv::Scalar(0, 255, 255));
+    debug_image = rcj_loc::vision::debug::createMaskOverlay(
+        debug_image,
+        width_supported_skeleton_mask,
+        cv::Scalar(255, 128, 0));
     debug_image = rcj_loc::vision::debug::createMaskOverlay(
         debug_image,
         supported_skeleton_mask,
@@ -350,28 +362,39 @@ public:
         this->declare_parameter<std::string>(
             "noise_mask_topic",
             "/white_line_lab_morph_node/noise_mask");
+        // Orientation estimation parameters
         this->declare_parameter("orientation_window_radius_px", 5);
         this->declare_parameter("min_orientation_neighbors", 6);
+        // Side support sampling parameters
         this->declare_parameter("side_margin_px", 1);
         this->declare_parameter("side_band_depth_px", 4);
         this->declare_parameter("min_green_ratio", 0.35);
         this->declare_parameter("min_boundary_ratio", 0.35);
         this->declare_parameter("enable_boundary_mode", true);
+        // Width filtering parameters
         this->declare_parameter("width_floor_px", 2.0);
         this->declare_parameter("width_ceil_px", 40.0);
         this->declare_parameter("width_mad_scale", 2.5);
         this->declare_parameter("min_width_samples", 25);
+        // Skeleton filtering parameters
         this->declare_parameter("min_skeleton_length_px", 12);
+        // Reconstruction parameters
         this->declare_parameter("reconstruction_margin_px", 1.0);
+        // Display parameters
+        this->declare_parameter("enable_image_view", false);
         this->declare_parameter("display_max_width", 960);
         this->declare_parameter("display_max_height", 720);
 
-        loadRuntimeParameters();
+        syncImageViewState();
         setupSubscribers();
 
         skeleton_mask_pub_ = this->create_publisher<sensor_msgs::msg::Image>("~/skeleton_mask", 10);
+        orientation_valid_mask_pub_ =
+            this->create_publisher<sensor_msgs::msg::Image>("~/orientation_valid_mask", 10);
         side_support_mask_pub_ =
             this->create_publisher<sensor_msgs::msg::Image>("~/side_support_mask", 10);
+        width_supported_skeleton_mask_pub_ =
+            this->create_publisher<sensor_msgs::msg::Image>("~/width_supported_skeleton_mask", 10);
         supported_skeleton_mask_pub_ =
             this->create_publisher<sensor_msgs::msg::Image>("~/supported_skeleton_mask", 10);
         reconstructed_mask_pub_ =
@@ -379,28 +402,15 @@ public:
         white_mask_pub_ = this->create_publisher<sensor_msgs::msg::Image>("~/white_mask", 10);
         debug_pub_ = this->create_publisher<sensor_msgs::msg::Image>("~/debug_image", 10);
 
-        cv::namedWindow(kMorphWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kSkeletonWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kSideSupportWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kSupportedSkeletonWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kReconstructedWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kWhiteMaskWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kDebugWindow, cv::WINDOW_NORMAL);
-
         RCLCPP_INFO(
             this->get_logger(),
-            "white_line_skeleton_filter_node started. Waiting for morph masks on '%s'.",
+            "white_line_skeleton_filter_node started. enable_image_view=%s. Waiting for morph masks on '%s'.",
+            enable_image_view_ ? "true" : "false",
             morph_mask_topic_.c_str());
     }
 
     ~WhiteLineSkeletonFilterNode() override {
-        cv::destroyWindow(kMorphWindow);
-        cv::destroyWindow(kSkeletonWindow);
-        cv::destroyWindow(kSideSupportWindow);
-        cv::destroyWindow(kSupportedSkeletonWindow);
-        cv::destroyWindow(kReconstructedWindow);
-        cv::destroyWindow(kWhiteMaskWindow);
-        cv::destroyWindow(kDebugWindow);
+        destroyDebugWindows();
     }
 
 private:
@@ -414,7 +424,9 @@ private:
     std::shared_ptr<message_filters::Synchronizer<ExactPolicy>> synchronizer_;
 
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr skeleton_mask_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr orientation_valid_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr side_support_mask_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr width_supported_skeleton_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr supported_skeleton_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr reconstructed_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr white_mask_pub_;
@@ -437,6 +449,8 @@ private:
     int min_width_samples_ = 25;
     int min_skeleton_length_px_ = 12;
     double reconstruction_margin_px_ = 1.0;
+    bool enable_image_view_ = false;
+    bool windows_initialized_ = false;
     int display_max_width_ = 960;
     int display_max_height_ = 720;
 
@@ -466,9 +480,55 @@ private:
             std::max(1, static_cast<int>(this->get_parameter("min_skeleton_length_px").as_int()));
         reconstruction_margin_px_ =
             std::max(0.0, this->get_parameter("reconstruction_margin_px").as_double());
+        enable_image_view_ = this->get_parameter("enable_image_view").as_bool();
         display_max_width_ = std::max(1, static_cast<int>(this->get_parameter("display_max_width").as_int()));
         display_max_height_ =
             std::max(1, static_cast<int>(this->get_parameter("display_max_height").as_int()));
+    }
+
+    void createDebugWindows() {
+        if (windows_initialized_) {
+            return;
+        }
+
+        cv::namedWindow(kMorphWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kSkeletonWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kOrientationValidWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kSideSupportWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kWidthSupportedWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kSupportedSkeletonWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kReconstructedWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kWhiteMaskWindow, cv::WINDOW_NORMAL);
+        cv::namedWindow(kDebugWindow, cv::WINDOW_NORMAL);
+
+        windows_initialized_ = true;
+    }
+
+    void destroyDebugWindows() {
+        if (!windows_initialized_) {
+            return;
+        }
+
+        cv::destroyWindow(kMorphWindow);
+        cv::destroyWindow(kSkeletonWindow);
+        cv::destroyWindow(kOrientationValidWindow);
+        cv::destroyWindow(kSideSupportWindow);
+        cv::destroyWindow(kWidthSupportedWindow);
+        cv::destroyWindow(kSupportedSkeletonWindow);
+        cv::destroyWindow(kReconstructedWindow);
+        cv::destroyWindow(kWhiteMaskWindow);
+        cv::destroyWindow(kDebugWindow);
+
+        windows_initialized_ = false;
+    }
+
+    void syncImageViewState() {
+        loadRuntimeParameters();
+        if (enable_image_view_) {
+            createDebugWindows();
+        } else {
+            destroyDebugWindows();
+        }
     }
 
     void setupSubscribers() {
@@ -496,7 +556,9 @@ private:
         const std_msgs::msg::Header &header,
         const cv::Mat &morph_mask,
         const cv::Mat &skeleton_mask,
+        const cv::Mat &orientation_valid_mask,
         const cv::Mat &side_support_mask,
+        const cv::Mat &width_supported_skeleton_mask,
         const cv::Mat &supported_skeleton_mask,
         const cv::Mat &reconstructed_mask,
         const cv::Mat &white_mask,
@@ -507,13 +569,19 @@ private:
             green_mask,
             black_mask,
             noise_mask,
+            orientation_valid_mask,
             side_support_mask,
+            width_supported_skeleton_mask,
             supported_skeleton_mask,
             white_mask);
 
         skeleton_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", skeleton_mask).toImageMsg());
+        orientation_valid_mask_pub_->publish(
+            *cv_bridge::CvImage(header, "mono8", orientation_valid_mask).toImageMsg());
         side_support_mask_pub_->publish(
             *cv_bridge::CvImage(header, "mono8", side_support_mask).toImageMsg());
+        width_supported_skeleton_mask_pub_->publish(
+            *cv_bridge::CvImage(header, "mono8", width_supported_skeleton_mask).toImageMsg());
         supported_skeleton_mask_pub_->publish(
             *cv_bridge::CvImage(header, "mono8", supported_skeleton_mask).toImageMsg());
         reconstructed_mask_pub_->publish(
@@ -521,34 +589,52 @@ private:
         white_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", white_mask).toImageMsg());
         debug_pub_->publish(*cv_bridge::CvImage(header, "bgr8", debug_image).toImageMsg());
 
-        cv::imshow(kMorphWindow, morph_mask);
-        cv::imshow(kSkeletonWindow, skeleton_mask);
-        cv::imshow(kSideSupportWindow, side_support_mask);
-        cv::imshow(kSupportedSkeletonWindow, supported_skeleton_mask);
-        cv::imshow(kReconstructedWindow, reconstructed_mask);
-        cv::imshow(kWhiteMaskWindow, white_mask);
-        cv::imshow(kDebugWindow, debug_image);
+        if (windows_initialized_) {
+            cv::imshow(kMorphWindow, morph_mask);
+            cv::imshow(kSkeletonWindow, skeleton_mask);
+            cv::imshow(kOrientationValidWindow, orientation_valid_mask);
+            cv::imshow(kSideSupportWindow, side_support_mask);
+            cv::imshow(kWidthSupportedWindow, width_supported_skeleton_mask);
+            cv::imshow(kSupportedSkeletonWindow, supported_skeleton_mask);
+            cv::imshow(kReconstructedWindow, reconstructed_mask);
+            cv::imshow(kWhiteMaskWindow, white_mask);
+            cv::imshow(kDebugWindow, debug_image);
 
-        resizeWindowToFitImage(kMorphWindow, morph_mask, display_max_width_, display_max_height_);
-        resizeWindowToFitImage(kSkeletonWindow, skeleton_mask, display_max_width_, display_max_height_);
-        resizeWindowToFitImage(
-            kSideSupportWindow,
-            side_support_mask,
-            display_max_width_,
-            display_max_height_);
-        resizeWindowToFitImage(
-            kSupportedSkeletonWindow,
-            supported_skeleton_mask,
-            display_max_width_,
-            display_max_height_);
-        resizeWindowToFitImage(
-            kReconstructedWindow,
-            reconstructed_mask,
-            display_max_width_,
-            display_max_height_);
-        resizeWindowToFitImage(kWhiteMaskWindow, white_mask, display_max_width_, display_max_height_);
-        resizeWindowToFitImage(kDebugWindow, debug_image, display_max_width_, display_max_height_);
-        cv::waitKey(1);
+            resizeWindowToFitImage(kMorphWindow, morph_mask, display_max_width_, display_max_height_);
+            resizeWindowToFitImage(kSkeletonWindow, skeleton_mask, display_max_width_, display_max_height_);
+            resizeWindowToFitImage(
+                kOrientationValidWindow,
+                orientation_valid_mask,
+                display_max_width_,
+                display_max_height_);
+            resizeWindowToFitImage(
+                kSideSupportWindow,
+                side_support_mask,
+                display_max_width_,
+                display_max_height_);
+            resizeWindowToFitImage(
+                kWidthSupportedWindow,
+                width_supported_skeleton_mask,
+                display_max_width_,
+                display_max_height_);
+            resizeWindowToFitImage(
+                kSupportedSkeletonWindow,
+                supported_skeleton_mask,
+                display_max_width_,
+                display_max_height_);
+            resizeWindowToFitImage(
+                kReconstructedWindow,
+                reconstructed_mask,
+                display_max_width_,
+                display_max_height_);
+            resizeWindowToFitImage(
+                kWhiteMaskWindow,
+                white_mask,
+                display_max_width_,
+                display_max_height_);
+            resizeWindowToFitImage(kDebugWindow, debug_image, display_max_width_, display_max_height_);
+            cv::waitKey(1);
+        }
     }
 
     void maskCallback(
@@ -556,7 +642,7 @@ private:
         const ImageMsg::ConstSharedPtr &green_msg,
         const ImageMsg::ConstSharedPtr &black_msg,
         const ImageMsg::ConstSharedPtr &noise_msg) {
-        loadRuntimeParameters();
+        syncImageViewState();
 
         cv::Mat morph_mask;
         cv::Mat green_mask;
@@ -591,6 +677,7 @@ private:
         cv::Mat distance_transform;
         cv::distanceTransform(morph_mask, distance_transform, cv::DIST_L2, 3);
 
+        cv::Mat orientation_valid_mask = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
         cv::Mat side_support_mask = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
         cv::Mat local_width_map = cv::Mat::zeros(morph_mask.size(), CV_32FC1);
         std::vector<float> supported_widths;
@@ -619,6 +706,7 @@ private:
                     continue;
                 }
 
+                orientation_valid_mask.at<uchar>(y, x) = 255;
                 local_width_map.at<float>(y, x) = local_width_px;
                 const SideSampleStats left_stats = sampleSideSupport(
                     cv::Point(x, y),
@@ -723,7 +811,9 @@ private:
             morph_msg->header,
             morph_mask,
             skeleton_mask,
+            orientation_valid_mask,
             side_support_mask,
+            width_supported_skeleton,
             supported_skeleton_mask,
             reconstructed_mask,
             white_mask,

@@ -64,23 +64,25 @@ public:
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
         cv::morphologyEx(feature_mask, feature_mask, cv::MORPH_OPEN, kernel);
 
-        // --- Blob / Contour Filtering ---
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(feature_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        // // --- Blob / Contour Filtering ---
+        // std::vector<std::vector<cv::Point>> contours;
+        // cv::findContours(feature_mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-        // Create a new black mask to draw only the valid contours onto
-        cv::Mat filtered_mask = cv::Mat::zeros(feature_mask.size(), CV_8UC1);
+        // // Create a new black mask to draw only the valid contours onto
+        // cv::Mat filtered_mask = cv::Mat::zeros(feature_mask.size(), CV_8UC1);
 
-        double min_area = 50.0; // Min pixel area to be considered a line segment
-        double max_area = 80000.0; // Max area to filter out huge white blobs (like a wall)
+        // double min_area = 50.0; // Min pixel area to be considered a line segment
+        // double max_area = 80000.0; // Max area to filter out huge white blobs (like a wall)
 
-        for (const auto& contour : contours) {
-            double area = cv::contourArea(contour);
-            if (area > min_area && area < max_area) {
-                // Draw this valid contour onto our new mask
-                cv::drawContours(filtered_mask, std::vector<std::vector<cv::Point>>{contour}, -1, cv::Scalar(255), cv::FILLED);
-            }
-        }
+        // for (const auto& contour : contours) {
+        //     double area = cv::contourArea(contour);
+        //     if (area > min_area && area < max_area) {
+        //         // Draw this valid contour onto our new mask
+        //         cv::drawContours(filtered_mask, std::vector<std::vector<cv::Point>>{contour}, -1, cv::Scalar(255), cv::FILLED);
+        //     }
+        // }
+
+        cv::Mat filtered_mask = feature_mask;
 
         // 4. Extract points and apply IPM (Inverse Perspective Mapping)
         int rows = filtered_mask.rows;

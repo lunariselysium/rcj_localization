@@ -173,7 +173,7 @@ void ParticleFilter::resample() {
     double p_random = std::max(0.0, 1.0 - (alpha_fast_ / alpha_slow_));
     
     // Limit to a maximum of 25% random injection to prevent total chaos
-    p_random = std::min(p_random, 0.25); 
+    p_random = std::min(p_random, 0.15); 
 
     int random_count = num_particles_ * p_random; 
     

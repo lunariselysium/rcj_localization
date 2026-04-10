@@ -64,7 +64,7 @@ private:
     double alpha_slow_ = 0.0;
     double alpha_fast_ = 0.0;
     double alpha_slow_rate_ = 0.001; // Adapts very slowly
-    double alpha_fast_rate_ = 0.05;   // Adapts very quickly
+    double alpha_fast_rate_ = 0.1;   // Adapts very quickly
 };
 
 } // namespace rcj_loc

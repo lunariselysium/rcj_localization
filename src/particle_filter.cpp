@@ -88,7 +88,7 @@ void ParticleFilter::updateWeights(const std::vector<Point2D>& local_observation
     double weight_sum = 0.0;
     double sigma_hit = 0.10; // We expect camera points to be accurate within 10cm of real lines
 
-    #pragma omp parrallel for reduction(+:weight_sum)
+    #pragma omp parallel for reduction(+:weight_sum)
     for (auto& p : particles_) {
         double log_weight = 0.0;
 

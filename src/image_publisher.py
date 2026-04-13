@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import time
 
 import cv2
@@ -26,6 +27,10 @@ class OpenMVImagePublisher(Node):
         self.declare_parameter("max_frame_size", 1048576)
         self.declare_parameter("wait_log_period_sec", 2.0)
         self.declare_parameter("frame_log_interval", 30)
+        self.declare_parameter("enable_image_view", False)
+        self.declare_parameter("show_published_image", True)
+        self.declare_parameter("display_max_width", 960)
+        self.declare_parameter("display_max_height", 720)
 
         self.port = self.get_parameter("port").get_parameter_value().string_value
         self.baudrate = self.get_parameter("baudrate").get_parameter_value().integer_value
@@ -45,10 +50,55 @@ class OpenMVImagePublisher(Node):
         self.waiting_since = time.monotonic()
         self.last_wait_log_time = 0.0
         self.frame_count = 0
+        self.enable_image_view = False
+        self.show_published_image = True
+        self.display_max_width = 960
+        self.display_max_height = 720
+        self.published_window_created = False
+        self.published_window_name = f"{self.get_name()} published_image"
+
+        self.sync_image_view_state()
 
         self.get_logger().info(
             "Listening for OpenMV JPEG frames on "
             f"{self.port} (baud={self.baudrate}, timeout={self.timeout_sec}s, frame_id={self.frame_id})"
+        )
+
+    def fit_within_bounds(self, frame):
+        safe_max_width = max(1, self.display_max_width)
+        safe_max_height = max(1, self.display_max_height)
+        height, width = frame.shape[:2]
+
+        if width <= 0 or height <= 0:
+            return safe_max_width, safe_max_height
+
+        width_scale = safe_max_width / width
+        height_scale = safe_max_height / height
+        scale = min(1.0, width_scale, height_scale)
+        return max(1, int(math.floor(width * scale + 0.5))), max(1, int(math.floor(height * scale + 0.5)))
+
+    def resize_window_to_fit_image(self, window_name, frame):
+        fitted_width, fitted_height = self.fit_within_bounds(frame)
+        cv2.resizeWindow(window_name, fitted_width, fitted_height)
+
+    def sync_window(self, window_name, should_show, autosize=False):
+        if should_show and not self.published_window_created:
+            flag = cv2.WINDOW_AUTOSIZE if autosize else cv2.WINDOW_NORMAL
+            cv2.namedWindow(window_name, flag)
+            self.published_window_created = True
+        elif not should_show and self.published_window_created:
+            cv2.destroyWindow(window_name)
+            self.published_window_created = False
+
+    def sync_image_view_state(self):
+        self.enable_image_view = self.get_parameter("enable_image_view").value
+        self.show_published_image = self.get_parameter("show_published_image").value
+        self.display_max_width = int(self.get_parameter("display_max_width").value)
+        self.display_max_height = int(self.get_parameter("display_max_height").value)
+
+        self.sync_window(
+            self.published_window_name,
+            self.enable_image_view and self.show_published_image,
         )
 
     def log_waiting(self, reason):
@@ -137,6 +187,8 @@ class OpenMVImagePublisher(Node):
         if frame is None:
             return
 
+        self.sync_image_view_state()
+
         stamp = self.get_clock().now().to_msg()
 
         image_msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
@@ -156,6 +208,15 @@ class OpenMVImagePublisher(Node):
 
         self.camera_info_pub.publish(camera_info)
         self.image_pub.publish(image_msg)
+
+        if self.published_window_created:
+            cv2.imshow(self.published_window_name, frame)
+            self.resize_window_to_fit_image(self.published_window_name, frame)
+            cv2.waitKey(1)
+
+    def destroy_node(self):
+        self.sync_window(self.published_window_name, False)
+        super().destroy_node()
 
 
 def main():

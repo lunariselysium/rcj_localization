@@ -24,12 +24,9 @@ constexpr char kOriginalWindow[] = "Lab Morph Original";
 constexpr char kWhiteCandidateWindow[] = "Lab Morph White Candidate";
 constexpr char kWhiteMorphWindow[] = "Lab Morph White Morph";
 constexpr char kGreenMaskWindow[] = "Lab Morph Green Mask";
-// Disabled debug window: visualizes the black-class mask after mutually exclusive assignment.
-// constexpr char kBlackMaskWindow[] = "Lab Morph Black Mask";
-// Disabled debug window: visualizes pixels that were left over as uncategorized noise.
-// constexpr char kNoiseMaskWindow[] = "Lab Morph Noise Mask";
-// Disabled debug window: visualizes the combined overlay of all classes on the filtered image.
-// constexpr char kOverlayWindow[] = "Lab Morph Overlay";
+constexpr char kBlackMaskWindow[] = "Lab Morph Black Mask";
+constexpr char kNoiseMaskWindow[] = "Lab Morph Noise Mask";
+constexpr char kOverlayWindow[] = "Lab Morph Overlay";
 
 int clampToByte(int value) {
     return std::clamp(value, 0, kByteMax);
@@ -122,6 +119,13 @@ public:
         this->declare_parameter("white_open_kernel", 4);
         this->declare_parameter("white_close_kernel", 5);
         this->declare_parameter("enable_image_view", false);
+        this->declare_parameter("show_input_image", true);
+        this->declare_parameter("show_white_candidate_mask", true);
+        this->declare_parameter("show_white_morph_mask", true);
+        this->declare_parameter("show_green_mask", true);
+        this->declare_parameter("show_black_mask", false);
+        this->declare_parameter("show_noise_mask", false);
+        this->declare_parameter("show_debug_image", false);
         this->declare_parameter("display_max_width", 960);
         this->declare_parameter("display_max_height", 720);
 
@@ -175,9 +179,23 @@ private:
     int white_open_kernel_;
     int white_close_kernel_;
     bool enable_image_view_ = false;
-    bool windows_initialized_ = false;
-    int display_max_width_;
-    int display_max_height_;
+    bool show_input_image_ = true;
+    bool show_white_candidate_mask_ = true;
+    bool show_white_morph_mask_ = true;
+    bool show_green_mask_ = true;
+    bool show_black_mask_ = false;
+    bool show_noise_mask_ = false;
+    bool show_debug_image_ = false;
+    bool controls_window_created_ = false;
+    bool original_window_created_ = false;
+    bool white_candidate_window_created_ = false;
+    bool white_morph_window_created_ = false;
+    bool green_mask_window_created_ = false;
+    bool black_mask_window_created_ = false;
+    bool noise_mask_window_created_ = false;
+    bool overlay_window_created_ = false;
+    int display_max_width_ = 960;
+    int display_max_height_ = 720;
 
     void loadThresholdsFromParameters() {
         white_enhanced_min_ =
@@ -201,80 +219,94 @@ private:
         white_open_kernel_ = static_cast<int>(this->get_parameter("white_open_kernel").as_int());
         white_close_kernel_ = static_cast<int>(this->get_parameter("white_close_kernel").as_int());
         enable_image_view_ = this->get_parameter("enable_image_view").as_bool();
-        display_max_width_ = static_cast<int>(this->get_parameter("display_max_width").as_int());
-        display_max_height_ = static_cast<int>(this->get_parameter("display_max_height").as_int());
+        show_input_image_ = this->get_parameter("show_input_image").as_bool();
+        show_white_candidate_mask_ = this->get_parameter("show_white_candidate_mask").as_bool();
+        show_white_morph_mask_ = this->get_parameter("show_white_morph_mask").as_bool();
+        show_green_mask_ = this->get_parameter("show_green_mask").as_bool();
+        show_black_mask_ = this->get_parameter("show_black_mask").as_bool();
+        show_noise_mask_ = this->get_parameter("show_noise_mask").as_bool();
+        show_debug_image_ = this->get_parameter("show_debug_image").as_bool();
+        display_max_width_ = std::max(1, static_cast<int>(this->get_parameter("display_max_width").as_int()));
+        display_max_height_ = std::max(1, static_cast<int>(this->get_parameter("display_max_height").as_int()));
     }
 
-    void createDebugWindows() {
-        if (windows_initialized_) {
-            return;
+    bool anyImageWindowRequested() const {
+        return show_input_image_ || show_white_candidate_mask_ || show_white_morph_mask_ ||
+               show_green_mask_ || show_black_mask_ || show_noise_mask_ || show_debug_image_;
+    }
+
+    void syncWindow(const std::string &window_name, bool should_show, bool &created) {
+        if (should_show && !created) {
+            cv::namedWindow(window_name, cv::WINDOW_NORMAL);
+            created = true;
+        } else if (!should_show && created) {
+            cv::destroyWindow(window_name);
+            created = false;
         }
+    }
 
-        cv::namedWindow(kOriginalWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kWhiteCandidateWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kWhiteMorphWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kGreenMaskWindow, cv::WINDOW_NORMAL);
-        // Disabled debug window: black mask view used to inspect dark-region classification.
-        // cv::namedWindow(kBlackMaskWindow, cv::WINDOW_NORMAL);
-        // Disabled debug window: noise mask view used to inspect uncategorized leftover pixels.
-        // cv::namedWindow(kNoiseMaskWindow, cv::WINDOW_NORMAL);
-        // Disabled debug window: overlay view used to inspect all class masks together.
-        // cv::namedWindow(kOverlayWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kControlsWindow, cv::WINDOW_AUTOSIZE);
+    void syncControlsWindow(bool should_show) {
+        if (should_show && !controls_window_created_) {
+            cv::namedWindow(kControlsWindow, cv::WINDOW_AUTOSIZE);
 
-        cv::createTrackbar("white_enh_min", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("white_a_center", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("white_b_center", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("white_a_tol", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("white_b_tol", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("green_a_max", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("green_b_min", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("green_b_max", kControlsWindow, nullptr, kByteMax);
-        cv::createTrackbar("black_enh_max", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("white_enh_min", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("white_a_center", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("white_b_center", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("white_a_tol", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("white_b_tol", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("green_a_max", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("green_b_min", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("green_b_max", kControlsWindow, nullptr, kByteMax);
+            cv::createTrackbar("black_enh_max", kControlsWindow, nullptr, kByteMax);
 
-        cv::setTrackbarPos("white_enh_min", kControlsWindow, white_enhanced_min_);
-        cv::setTrackbarPos("white_a_center", kControlsWindow, white_a_center_);
-        cv::setTrackbarPos("white_b_center", kControlsWindow, white_b_center_);
-        cv::setTrackbarPos("white_a_tol", kControlsWindow, white_a_tol_);
-        cv::setTrackbarPos("white_b_tol", kControlsWindow, white_b_tol_);
-        cv::setTrackbarPos("green_a_max", kControlsWindow, green_a_max_);
-        cv::setTrackbarPos("green_b_min", kControlsWindow, green_b_min_);
-        cv::setTrackbarPos("green_b_max", kControlsWindow, green_b_max_);
-        cv::setTrackbarPos("black_enh_max", kControlsWindow, black_enhanced_max_);
+            cv::setTrackbarPos("white_enh_min", kControlsWindow, white_enhanced_min_);
+            cv::setTrackbarPos("white_a_center", kControlsWindow, white_a_center_);
+            cv::setTrackbarPos("white_b_center", kControlsWindow, white_b_center_);
+            cv::setTrackbarPos("white_a_tol", kControlsWindow, white_a_tol_);
+            cv::setTrackbarPos("white_b_tol", kControlsWindow, white_b_tol_);
+            cv::setTrackbarPos("green_a_max", kControlsWindow, green_a_max_);
+            cv::setTrackbarPos("green_b_min", kControlsWindow, green_b_min_);
+            cv::setTrackbarPos("green_b_max", kControlsWindow, green_b_max_);
+            cv::setTrackbarPos("black_enh_max", kControlsWindow, black_enhanced_max_);
 
-        windows_initialized_ = true;
+            controls_window_created_ = true;
+        } else if (!should_show && controls_window_created_) {
+            cv::destroyWindow(kControlsWindow);
+            controls_window_created_ = false;
+        }
     }
 
     void destroyDebugWindows() {
-        if (!windows_initialized_) {
-            return;
-        }
-
-        cv::destroyWindow(kOriginalWindow);
-        cv::destroyWindow(kWhiteCandidateWindow);
-        cv::destroyWindow(kWhiteMorphWindow);
-        cv::destroyWindow(kGreenMaskWindow);
-        // Disabled debug window teardown: black mask view.
-        // cv::destroyWindow(kBlackMaskWindow);
-        // Disabled debug window teardown: noise mask view.
-        // cv::destroyWindow(kNoiseMaskWindow);
-        // Disabled debug window teardown: combined overlay view.
-        // cv::destroyWindow(kOverlayWindow);
-        cv::destroyWindow(kControlsWindow);
-        windows_initialized_ = false;
+        syncWindow(kOriginalWindow, false, original_window_created_);
+        syncWindow(kWhiteCandidateWindow, false, white_candidate_window_created_);
+        syncWindow(kWhiteMorphWindow, false, white_morph_window_created_);
+        syncWindow(kGreenMaskWindow, false, green_mask_window_created_);
+        syncWindow(kBlackMaskWindow, false, black_mask_window_created_);
+        syncWindow(kNoiseMaskWindow, false, noise_mask_window_created_);
+        syncWindow(kOverlayWindow, false, overlay_window_created_);
+        syncControlsWindow(false);
     }
 
     void syncImageViewState() {
         loadThresholdsFromParameters();
-        if (enable_image_view_) {
-            createDebugWindows();
-        } else {
-            destroyDebugWindows();
-        }
+        syncWindow(kOriginalWindow, enable_image_view_ && show_input_image_, original_window_created_);
+        syncWindow(
+            kWhiteCandidateWindow,
+            enable_image_view_ && show_white_candidate_mask_,
+            white_candidate_window_created_);
+        syncWindow(
+            kWhiteMorphWindow,
+            enable_image_view_ && show_white_morph_mask_,
+            white_morph_window_created_);
+        syncWindow(kGreenMaskWindow, enable_image_view_ && show_green_mask_, green_mask_window_created_);
+        syncWindow(kBlackMaskWindow, enable_image_view_ && show_black_mask_, black_mask_window_created_);
+        syncWindow(kNoiseMaskWindow, enable_image_view_ && show_noise_mask_, noise_mask_window_created_);
+        syncWindow(kOverlayWindow, enable_image_view_ && show_debug_image_, overlay_window_created_);
+        syncControlsWindow(enable_image_view_ && anyImageWindowRequested());
     }
 
     void readThresholdsFromTrackbars() {
-        if (!windows_initialized_) {
+        if (!controls_window_created_) {
             return;
         }
         white_enhanced_min_ = cv::getTrackbarPos("white_enh_min", kControlsWindow);
@@ -324,7 +356,7 @@ private:
         const auto preprocess_params = rcj_loc::vision::white_line::getPreprocessParams(*this);
         const auto preprocessed = rcj_loc::vision::white_line::preprocessFrame(frame, preprocess_params);
 
-        if (windows_initialized_) {
+        if (controls_window_created_) {
             readThresholdsFromTrackbars();
         }
 
@@ -388,57 +420,68 @@ private:
         noise_mask_pub_->publish(*cv_bridge::CvImage(msg->header, "mono8", noise_mask).toImageMsg());
         debug_pub_->publish(*cv_bridge::CvImage(msg->header, "bgr8", overlay).toImageMsg());
 
-        if (windows_initialized_) {
+        bool displayed_any_window = false;
+        if (original_window_created_) {
             cv::imshow(kOriginalWindow, frame);
+            resizeWindowToFitImage(kOriginalWindow, frame, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (white_candidate_window_created_) {
             cv::imshow(kWhiteCandidateWindow, raw_white_mask);
-            cv::imshow(kWhiteMorphWindow, white_morph_mask);
-            cv::imshow(kGreenMaskWindow, green_mask);
-            // Disabled debug window: black mask visualization.
-            // cv::imshow(kBlackMaskWindow, black_mask);
-            // Disabled debug window: noise mask visualization.
-            // cv::imshow(kNoiseMaskWindow, noise_mask);
-            // Disabled debug window: combined overlay visualization.
-            // cv::imshow(kOverlayWindow, overlay);
-
-            resizeWindowToFitImage(
-                kOriginalWindow,
-                frame,
-                display_max_width_,
-                display_max_height_);
             resizeWindowToFitImage(
                 kWhiteCandidateWindow,
                 raw_white_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (white_morph_window_created_) {
+            cv::imshow(kWhiteMorphWindow, white_morph_mask);
             resizeWindowToFitImage(
                 kWhiteMorphWindow,
                 white_morph_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (green_mask_window_created_) {
+            cv::imshow(kGreenMaskWindow, green_mask);
             resizeWindowToFitImage(
                 kGreenMaskWindow,
                 green_mask,
                 display_max_width_,
                 display_max_height_);
-            // Disabled debug window resize: black mask visualization.
-            // resizeWindowToFitImage(
-            //     kBlackMaskWindow,
-            //     black_mask,
-            //     display_max_width_,
-            //     display_max_height_);
-            // Disabled debug window resize: noise mask visualization.
-            // resizeWindowToFitImage(
-            //     kNoiseMaskWindow,
-            //     noise_mask,
-            //     display_max_width_,
-            //     display_max_height_);
-            // Disabled debug window resize: combined overlay visualization.
-            // resizeWindowToFitImage(
-            //     kOverlayWindow,
-            //     overlay,
-            //     display_max_width_,
-            //     display_max_height_);
+            displayed_any_window = true;
+        }
+        if (black_mask_window_created_) {
+            cv::imshow(kBlackMaskWindow, black_mask);
+            resizeWindowToFitImage(
+                kBlackMaskWindow,
+                black_mask,
+                display_max_width_,
+                display_max_height_);
+            displayed_any_window = true;
+        }
+        if (noise_mask_window_created_) {
+            cv::imshow(kNoiseMaskWindow, noise_mask);
+            resizeWindowToFitImage(
+                kNoiseMaskWindow,
+                noise_mask,
+                display_max_width_,
+                display_max_height_);
+            displayed_any_window = true;
+        }
+        if (overlay_window_created_) {
+            cv::imshow(kOverlayWindow, overlay);
+            resizeWindowToFitImage(
+                kOverlayWindow,
+                overlay,
+                display_max_width_,
+                display_max_height_);
+            displayed_any_window = true;
+        }
 
+        if (displayed_any_window || controls_window_created_) {
             const int key = cv::waitKey(1);
             if (key == 'p' || key == 'P') {
                 logCurrentThresholds();

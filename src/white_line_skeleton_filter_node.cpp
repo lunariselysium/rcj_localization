@@ -24,6 +24,9 @@
 namespace {
 
 constexpr char kMorphWindow[] = "Skeleton Filter Input Morph Mask";
+constexpr char kGreenWindow[] = "Skeleton Filter Input Green Mask";
+constexpr char kBlackWindow[] = "Skeleton Filter Input Black Mask";
+constexpr char kNoiseWindow[] = "Skeleton Filter Input Noise Mask";
 constexpr char kSkeletonWindow[] = "Skeleton Filter Skeletonization";
 constexpr char kOrientationValidWindow[] = "Skeleton Filter Orientation Valid";
 constexpr char kSideSupportWindow[] = "Skeleton Filter Side Color Filter";
@@ -388,6 +391,18 @@ public:
         this->declare_parameter("reconstruction_margin_px", 1.0);
         // Display parameters
         this->declare_parameter("enable_image_view", false);
+        this->declare_parameter("show_morph_mask", true);
+        this->declare_parameter("show_green_mask", false);
+        this->declare_parameter("show_black_mask", false);
+        this->declare_parameter("show_noise_mask", false);
+        this->declare_parameter("show_skeleton_mask", true);
+        this->declare_parameter("show_orientation_valid_mask", true);
+        this->declare_parameter("show_side_support_mask", true);
+        this->declare_parameter("show_width_supported_skeleton_mask", true);
+        this->declare_parameter("show_supported_skeleton_mask", true);
+        this->declare_parameter("show_reconstructed_mask", true);
+        this->declare_parameter("show_white_mask", true);
+        this->declare_parameter("show_debug_image", true);
         this->declare_parameter("display_max_width", 960);
         this->declare_parameter("display_max_height", 720);
 
@@ -456,7 +471,30 @@ private:
     int min_skeleton_length_px_ = 12;
     double reconstruction_margin_px_ = 1.0;
     bool enable_image_view_ = false;
-    bool windows_initialized_ = false;
+    bool show_morph_mask_ = true;
+    bool show_green_mask_ = false;
+    bool show_black_mask_ = false;
+    bool show_noise_mask_ = false;
+    bool show_skeleton_mask_ = true;
+    bool show_orientation_valid_mask_ = true;
+    bool show_side_support_mask_ = true;
+    bool show_width_supported_skeleton_mask_ = true;
+    bool show_supported_skeleton_mask_ = true;
+    bool show_reconstructed_mask_ = true;
+    bool show_white_mask_ = true;
+    bool show_debug_image_ = true;
+    bool morph_window_created_ = false;
+    bool green_window_created_ = false;
+    bool black_window_created_ = false;
+    bool noise_window_created_ = false;
+    bool skeleton_window_created_ = false;
+    bool orientation_valid_window_created_ = false;
+    bool side_support_window_created_ = false;
+    bool width_supported_window_created_ = false;
+    bool supported_skeleton_window_created_ = false;
+    bool reconstructed_window_created_ = false;
+    bool white_mask_window_created_ = false;
+    bool debug_window_created_ = false;
     int display_max_width_ = 960;
     int display_max_height_ = 720;
 
@@ -487,54 +525,87 @@ private:
         reconstruction_margin_px_ =
             std::max(0.0, this->get_parameter("reconstruction_margin_px").as_double());
         enable_image_view_ = this->get_parameter("enable_image_view").as_bool();
+        show_morph_mask_ = this->get_parameter("show_morph_mask").as_bool();
+        show_green_mask_ = this->get_parameter("show_green_mask").as_bool();
+        show_black_mask_ = this->get_parameter("show_black_mask").as_bool();
+        show_noise_mask_ = this->get_parameter("show_noise_mask").as_bool();
+        show_skeleton_mask_ = this->get_parameter("show_skeleton_mask").as_bool();
+        show_orientation_valid_mask_ = this->get_parameter("show_orientation_valid_mask").as_bool();
+        show_side_support_mask_ = this->get_parameter("show_side_support_mask").as_bool();
+        show_width_supported_skeleton_mask_ =
+            this->get_parameter("show_width_supported_skeleton_mask").as_bool();
+        show_supported_skeleton_mask_ =
+            this->get_parameter("show_supported_skeleton_mask").as_bool();
+        show_reconstructed_mask_ = this->get_parameter("show_reconstructed_mask").as_bool();
+        show_white_mask_ = this->get_parameter("show_white_mask").as_bool();
+        show_debug_image_ = this->get_parameter("show_debug_image").as_bool();
         display_max_width_ = std::max(1, static_cast<int>(this->get_parameter("display_max_width").as_int()));
         display_max_height_ =
             std::max(1, static_cast<int>(this->get_parameter("display_max_height").as_int()));
     }
 
-    void createDebugWindows() {
-        if (windows_initialized_) {
-            return;
+    bool anyImageWindowRequested() const {
+        return show_morph_mask_ || show_green_mask_ || show_black_mask_ || show_noise_mask_ ||
+               show_skeleton_mask_ || show_orientation_valid_mask_ || show_side_support_mask_ ||
+               show_width_supported_skeleton_mask_ || show_supported_skeleton_mask_ ||
+               show_reconstructed_mask_ || show_white_mask_ || show_debug_image_;
+    }
+
+    void syncWindow(const std::string &window_name, bool should_show, bool &created) {
+        if (should_show && !created) {
+            cv::namedWindow(window_name, cv::WINDOW_NORMAL);
+            created = true;
+        } else if (!should_show && created) {
+            cv::destroyWindow(window_name);
+            created = false;
         }
-
-        cv::namedWindow(kMorphWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kSkeletonWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kOrientationValidWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kSideSupportWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kWidthSupportedWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kSupportedSkeletonWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kReconstructedWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kWhiteMaskWindow, cv::WINDOW_NORMAL);
-        cv::namedWindow(kDebugWindow, cv::WINDOW_NORMAL);
-
-        windows_initialized_ = true;
     }
 
     void destroyDebugWindows() {
-        if (!windows_initialized_) {
-            return;
-        }
-
-        cv::destroyWindow(kMorphWindow);
-        cv::destroyWindow(kSkeletonWindow);
-        cv::destroyWindow(kOrientationValidWindow);
-        cv::destroyWindow(kSideSupportWindow);
-        cv::destroyWindow(kWidthSupportedWindow);
-        cv::destroyWindow(kSupportedSkeletonWindow);
-        cv::destroyWindow(kReconstructedWindow);
-        cv::destroyWindow(kWhiteMaskWindow);
-        cv::destroyWindow(kDebugWindow);
-
-        windows_initialized_ = false;
+        syncWindow(kMorphWindow, false, morph_window_created_);
+        syncWindow(kGreenWindow, false, green_window_created_);
+        syncWindow(kBlackWindow, false, black_window_created_);
+        syncWindow(kNoiseWindow, false, noise_window_created_);
+        syncWindow(kSkeletonWindow, false, skeleton_window_created_);
+        syncWindow(kOrientationValidWindow, false, orientation_valid_window_created_);
+        syncWindow(kSideSupportWindow, false, side_support_window_created_);
+        syncWindow(kWidthSupportedWindow, false, width_supported_window_created_);
+        syncWindow(kSupportedSkeletonWindow, false, supported_skeleton_window_created_);
+        syncWindow(kReconstructedWindow, false, reconstructed_window_created_);
+        syncWindow(kWhiteMaskWindow, false, white_mask_window_created_);
+        syncWindow(kDebugWindow, false, debug_window_created_);
     }
 
     void syncImageViewState() {
         loadRuntimeParameters();
-        if (enable_image_view_) {
-            createDebugWindows();
-        } else {
-            destroyDebugWindows();
-        }
+        const bool master_enabled = enable_image_view_ && anyImageWindowRequested();
+        syncWindow(kMorphWindow, master_enabled && show_morph_mask_, morph_window_created_);
+        syncWindow(kGreenWindow, master_enabled && show_green_mask_, green_window_created_);
+        syncWindow(kBlackWindow, master_enabled && show_black_mask_, black_window_created_);
+        syncWindow(kNoiseWindow, master_enabled && show_noise_mask_, noise_window_created_);
+        syncWindow(kSkeletonWindow, master_enabled && show_skeleton_mask_, skeleton_window_created_);
+        syncWindow(
+            kOrientationValidWindow,
+            master_enabled && show_orientation_valid_mask_,
+            orientation_valid_window_created_);
+        syncWindow(
+            kSideSupportWindow,
+            master_enabled && show_side_support_mask_,
+            side_support_window_created_);
+        syncWindow(
+            kWidthSupportedWindow,
+            master_enabled && show_width_supported_skeleton_mask_,
+            width_supported_window_created_);
+        syncWindow(
+            kSupportedSkeletonWindow,
+            master_enabled && show_supported_skeleton_mask_,
+            supported_skeleton_window_created_);
+        syncWindow(
+            kReconstructedWindow,
+            master_enabled && show_reconstructed_mask_,
+            reconstructed_window_created_);
+        syncWindow(kWhiteMaskWindow, master_enabled && show_white_mask_, white_mask_window_created_);
+        syncWindow(kDebugWindow, master_enabled && show_debug_image_, debug_window_created_);
     }
 
     void setupSubscribers() {
@@ -595,50 +666,92 @@ private:
         white_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", white_mask).toImageMsg());
         debug_pub_->publish(*cv_bridge::CvImage(header, "bgr8", debug_image).toImageMsg());
 
-        if (windows_initialized_) {
+        bool displayed_any_window = false;
+        if (morph_window_created_) {
             cv::imshow(kMorphWindow, morph_mask);
-            cv::imshow(kSkeletonWindow, skeleton_mask);
-            cv::imshow(kOrientationValidWindow, orientation_valid_mask);
-            cv::imshow(kSideSupportWindow, side_support_mask);
-            cv::imshow(kWidthSupportedWindow, width_supported_skeleton_mask);
-            cv::imshow(kSupportedSkeletonWindow, supported_skeleton_mask);
-            cv::imshow(kReconstructedWindow, reconstructed_mask);
-            cv::imshow(kWhiteMaskWindow, white_mask);
-            cv::imshow(kDebugWindow, debug_image);
-
             resizeWindowToFitImage(kMorphWindow, morph_mask, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (green_window_created_) {
+            cv::imshow(kGreenWindow, green_mask);
+            resizeWindowToFitImage(kGreenWindow, green_mask, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (black_window_created_) {
+            cv::imshow(kBlackWindow, black_mask);
+            resizeWindowToFitImage(kBlackWindow, black_mask, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (noise_window_created_) {
+            cv::imshow(kNoiseWindow, noise_mask);
+            resizeWindowToFitImage(kNoiseWindow, noise_mask, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (skeleton_window_created_) {
+            cv::imshow(kSkeletonWindow, skeleton_mask);
             resizeWindowToFitImage(kSkeletonWindow, skeleton_mask, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (orientation_valid_window_created_) {
+            cv::imshow(kOrientationValidWindow, orientation_valid_mask);
             resizeWindowToFitImage(
                 kOrientationValidWindow,
                 orientation_valid_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (side_support_window_created_) {
+            cv::imshow(kSideSupportWindow, side_support_mask);
             resizeWindowToFitImage(
                 kSideSupportWindow,
                 side_support_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (width_supported_window_created_) {
+            cv::imshow(kWidthSupportedWindow, width_supported_skeleton_mask);
             resizeWindowToFitImage(
                 kWidthSupportedWindow,
                 width_supported_skeleton_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (supported_skeleton_window_created_) {
+            cv::imshow(kSupportedSkeletonWindow, supported_skeleton_mask);
             resizeWindowToFitImage(
                 kSupportedSkeletonWindow,
                 supported_skeleton_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (reconstructed_window_created_) {
+            cv::imshow(kReconstructedWindow, reconstructed_mask);
             resizeWindowToFitImage(
                 kReconstructedWindow,
                 reconstructed_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (white_mask_window_created_) {
+            cv::imshow(kWhiteMaskWindow, white_mask);
             resizeWindowToFitImage(
                 kWhiteMaskWindow,
                 white_mask,
                 display_max_width_,
                 display_max_height_);
+            displayed_any_window = true;
+        }
+        if (debug_window_created_) {
+            cv::imshow(kDebugWindow, debug_image);
             resizeWindowToFitImage(kDebugWindow, debug_image, display_max_width_, display_max_height_);
+            displayed_any_window = true;
+        }
+        if (displayed_any_window) {
             cv::waitKey(1);
         }
     }

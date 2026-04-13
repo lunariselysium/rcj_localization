@@ -14,7 +14,7 @@ frame_count = 0
 
 sensor.reset()
 sensor.set_pixformat(sensor.RGB565)
-sensor.set_framesize(sensor.XGA)
+sensor.set_framesize(sensor.QXGA)
 
 sensor.set_auto_exposure(False, exposure_us=100000)  # 10000us = 10ms
 # 关闭自动增益（非常重要！）

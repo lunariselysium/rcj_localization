@@ -23,7 +23,7 @@ class OpenMVImagePublisher(Node):
         self.declare_parameter("frame_id", "camera")
         self.declare_parameter("image_topic", "/camera/image_raw")
         self.declare_parameter("camera_info_topic", "/camera/camera_info")
-        self.declare_parameter("max_frame_size", 262144)
+        self.declare_parameter("max_frame_size", 1048576)
         self.declare_parameter("wait_log_period_sec", 2.0)
         self.declare_parameter("frame_log_interval", 30)
 

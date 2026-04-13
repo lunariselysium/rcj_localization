@@ -10,6 +10,7 @@ endif()
 # Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(image_transport REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -98,12 +99,28 @@ target_link_libraries(vision_processor_node
   ${OpenCV_LIBRARIES}
 )
 
+add_executable(fastmap_remap_node
+  src/ros2_fastmap_remap_node.cpp
+)
+
+ament_target_dependencies(fastmap_remap_node
+  "rclcpp"
+  "sensor_msgs"
+  "cv_bridge"
+  "image_transport"
+)
+
+target_link_libraries(fastmap_remap_node
+  ${OpenCV_LIBRARIES}
+)
+
 
 # --- Installation Rules ---
 # This tells colcon where to put the files so `ros2 run` can find them.
 install(TARGETS
   localization_node
   vision_processor_node
+  fastmap_remap_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -245,7 +262,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch maps
+install(DIRECTORY launch maps config
   DESTINATION share/${PROJECT_NAME}
 )
 

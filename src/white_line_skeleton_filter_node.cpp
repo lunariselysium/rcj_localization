@@ -33,7 +33,7 @@ constexpr char kSideSupportWindow[] = "Skeleton Filter Side Color Filter";
 constexpr char kWidthSupportedWindow[] = "Skeleton Filter Width Filter";
 constexpr char kLengthFilteredSkeletonWindow[] = "Skeleton Filter Length-Filtered Skeleton";
 constexpr char kReconstructedWindow[] = "Skeleton Filter Reconstruction";
-constexpr char kWhiteMaskWindow[] = "Skeleton Filter Final White Mask";
+constexpr char kWhiteFinalMaskWindow[] = "Skeleton Filter White Final Mask";
 constexpr char kDebugWindow[] = "Skeleton Filter Composite Debug";
 constexpr bool kDefaultShowLengthFilteredSkeletonMask = true;
 
@@ -321,37 +321,17 @@ cv::Mat filterSkeletonByLength(const cv::Mat &skeleton_mask, int min_length_pixe
 cv::Mat createDebugComposite(
     const cv::Mat &green_mask,
     const cv::Mat &black_mask,
-    const cv::Mat &noise_mask,
-    const cv::Mat &orientation_valid_mask,
-    const cv::Mat &side_support_mask,
-    const cv::Mat &width_supported_skeleton_mask,
-    const cv::Mat &length_filtered_skeleton_mask,
-    const cv::Mat &white_mask) {
+    const cv::Mat &white_final_mask) {
     cv::Mat debug_image(green_mask.size(), CV_8UC3, cv::Scalar(30, 70, 30));
     debug_image =
         rcj_loc::vision::debug::createMaskOverlay(debug_image, black_mask, cv::Scalar(0, 0, 255));
     debug_image =
         rcj_loc::vision::debug::createMaskOverlay(debug_image, green_mask, cv::Scalar(0, 200, 0));
     debug_image =
-        rcj_loc::vision::debug::createMaskOverlay(debug_image, noise_mask, cv::Scalar(255, 0, 255));
-    debug_image = rcj_loc::vision::debug::createMaskOverlay(
-        debug_image,
-        orientation_valid_mask,
-        cv::Scalar(0, 128, 255));
-    debug_image = rcj_loc::vision::debug::createMaskOverlay(
-        debug_image,
-        side_support_mask,
-        cv::Scalar(0, 255, 255));
-    debug_image = rcj_loc::vision::debug::createMaskOverlay(
-        debug_image,
-        width_supported_skeleton_mask,
-        cv::Scalar(255, 128, 0));
-    debug_image = rcj_loc::vision::debug::createMaskOverlay(
-        debug_image,
-        length_filtered_skeleton_mask,
-        cv::Scalar(255, 255, 0));
-    debug_image =
-        rcj_loc::vision::debug::createMaskOverlay(debug_image, white_mask, cv::Scalar(255, 255, 255));
+        rcj_loc::vision::debug::createMaskOverlay(
+            debug_image,
+            white_final_mask,
+            cv::Scalar(255, 255, 255));
     return debug_image;
 }
 
@@ -407,6 +387,7 @@ public:
             "show_supported_skeleton_mask",
             kDefaultShowLengthFilteredSkeletonMask);
         this->declare_parameter("show_reconstructed_mask", true);
+        this->declare_parameter("show_white_final_mask", true);
         this->declare_parameter("show_white_mask", true);
         this->declare_parameter("show_debug_image", true);
         this->declare_parameter("display_max_width", 960);
@@ -428,7 +409,10 @@ public:
             this->create_publisher<sensor_msgs::msg::Image>("~/supported_skeleton_mask", 10);
         reconstructed_mask_pub_ =
             this->create_publisher<sensor_msgs::msg::Image>("~/reconstructed_mask", 10);
-        white_mask_pub_ = this->create_publisher<sensor_msgs::msg::Image>("~/white_mask", 10);
+        white_final_mask_pub_ =
+            this->create_publisher<sensor_msgs::msg::Image>("~/white_final_mask", 10);
+        legacy_white_mask_pub_ =
+            this->create_publisher<sensor_msgs::msg::Image>("~/white_mask", 10);
         debug_pub_ = this->create_publisher<sensor_msgs::msg::Image>("~/debug_image", 10);
 
         RCLCPP_INFO(
@@ -459,7 +443,8 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr length_filtered_skeleton_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr legacy_supported_skeleton_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr reconstructed_mask_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr white_mask_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr white_final_mask_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr legacy_white_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_pub_;
 
     std::string morph_mask_topic_;
@@ -490,7 +475,7 @@ private:
     bool show_width_supported_skeleton_mask_ = true;
     bool show_length_filtered_skeleton_mask_ = kDefaultShowLengthFilteredSkeletonMask;
     bool show_reconstructed_mask_ = true;
-    bool show_white_mask_ = true;
+    bool show_white_final_mask_ = true;
     bool show_debug_image_ = true;
     bool morph_window_created_ = false;
     bool green_window_created_ = false;
@@ -502,9 +487,11 @@ private:
     bool width_supported_window_created_ = false;
     bool length_filtered_skeleton_window_created_ = false;
     bool reconstructed_window_created_ = false;
-    bool white_mask_window_created_ = false;
+    bool white_final_mask_window_created_ = false;
     bool debug_window_created_ = false;
     bool warned_deprecated_show_supported_skeleton_mask_param_ = false;
+    bool warned_deprecated_show_white_mask_param_ = false;
+    bool warned_deprecated_white_mask_topic_ = false;
     int display_max_width_ = 960;
     int display_max_height_ = 720;
 
@@ -550,6 +537,42 @@ private:
         return current_value;
     }
 
+    bool loadWhiteFinalMaskToggle() {
+        const bool current_value =
+            this->get_parameter("show_white_final_mask").as_bool();
+        const bool legacy_value =
+            this->get_parameter("show_white_mask").as_bool();
+        const bool current_overridden =
+            isParameterOverridden("show_white_final_mask");
+        const bool legacy_overridden =
+            isParameterOverridden("show_white_mask");
+
+        if (current_overridden) {
+            if (legacy_overridden && current_value != legacy_value &&
+                !warned_deprecated_show_white_mask_param_) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Both 'show_white_final_mask' and deprecated 'show_white_mask' were "
+                    "provided. Using 'show_white_final_mask'.");
+                warned_deprecated_show_white_mask_param_ = true;
+            }
+            return current_value;
+        }
+
+        if (legacy_overridden) {
+            if (!warned_deprecated_show_white_mask_param_) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Parameter 'show_white_mask' is deprecated. Use "
+                    "'show_white_final_mask' instead.");
+                warned_deprecated_show_white_mask_param_ = true;
+            }
+            return legacy_value;
+        }
+
+        return current_value;
+    }
+
     void loadRuntimeParameters() {
         morph_mask_topic_ = this->get_parameter("morph_mask_topic").as_string();
         green_mask_topic_ = this->get_parameter("green_mask_topic").as_string();
@@ -588,7 +611,7 @@ private:
             this->get_parameter("show_width_supported_skeleton_mask").as_bool();
         show_length_filtered_skeleton_mask_ = loadLengthFilteredSkeletonMaskToggle();
         show_reconstructed_mask_ = this->get_parameter("show_reconstructed_mask").as_bool();
-        show_white_mask_ = this->get_parameter("show_white_mask").as_bool();
+        show_white_final_mask_ = loadWhiteFinalMaskToggle();
         show_debug_image_ = this->get_parameter("show_debug_image").as_bool();
         display_max_width_ = std::max(1, static_cast<int>(this->get_parameter("display_max_width").as_int()));
         display_max_height_ =
@@ -599,7 +622,7 @@ private:
         return show_morph_mask_ || show_green_mask_ || show_black_mask_ || show_noise_mask_ ||
                show_skeleton_mask_ || show_orientation_valid_mask_ || show_side_support_mask_ ||
                show_width_supported_skeleton_mask_ || show_length_filtered_skeleton_mask_ ||
-               show_reconstructed_mask_ || show_white_mask_ || show_debug_image_;
+               show_reconstructed_mask_ || show_white_final_mask_ || show_debug_image_;
     }
 
     void syncWindow(const std::string &window_name, bool should_show, bool &created) {
@@ -626,7 +649,7 @@ private:
             false,
             length_filtered_skeleton_window_created_);
         syncWindow(kReconstructedWindow, false, reconstructed_window_created_);
-        syncWindow(kWhiteMaskWindow, false, white_mask_window_created_);
+        syncWindow(kWhiteFinalMaskWindow, false, white_final_mask_window_created_);
         syncWindow(kDebugWindow, false, debug_window_created_);
     }
 
@@ -658,7 +681,10 @@ private:
             kReconstructedWindow,
             master_enabled && show_reconstructed_mask_,
             reconstructed_window_created_);
-        syncWindow(kWhiteMaskWindow, master_enabled && show_white_mask_, white_mask_window_created_);
+        syncWindow(
+            kWhiteFinalMaskWindow,
+            master_enabled && show_white_final_mask_,
+            white_final_mask_window_created_);
         syncWindow(kDebugWindow, master_enabled && show_debug_image_, debug_window_created_);
     }
 
@@ -692,19 +718,14 @@ private:
         const cv::Mat &width_supported_skeleton_mask,
         const cv::Mat &length_filtered_skeleton_mask,
         const cv::Mat &reconstructed_mask,
-        const cv::Mat &white_mask,
+        const cv::Mat &white_final_mask,
         const cv::Mat &green_mask,
         const cv::Mat &black_mask,
         const cv::Mat &noise_mask) {
         const cv::Mat debug_image = createDebugComposite(
             green_mask,
             black_mask,
-            noise_mask,
-            orientation_valid_mask,
-            side_support_mask,
-            width_supported_skeleton_mask,
-            length_filtered_skeleton_mask,
-            white_mask);
+            white_final_mask);
 
         skeleton_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", skeleton_mask).toImageMsg());
         orientation_valid_mask_pub_->publish(
@@ -719,7 +740,16 @@ private:
             *cv_bridge::CvImage(header, "mono8", length_filtered_skeleton_mask).toImageMsg());
         reconstructed_mask_pub_->publish(
             *cv_bridge::CvImage(header, "mono8", reconstructed_mask).toImageMsg());
-        white_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", white_mask).toImageMsg());
+        white_final_mask_pub_->publish(
+            *cv_bridge::CvImage(header, "mono8", white_final_mask).toImageMsg());
+        if (!warned_deprecated_white_mask_topic_) {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Topic '~/white_mask' is deprecated. Use '~/white_final_mask' instead.");
+            warned_deprecated_white_mask_topic_ = true;
+        }
+        legacy_white_mask_pub_->publish(
+            *cv_bridge::CvImage(header, "mono8", white_final_mask).toImageMsg());
         debug_pub_->publish(*cv_bridge::CvImage(header, "bgr8", debug_image).toImageMsg());
 
         bool displayed_any_window = false;
@@ -793,11 +823,11 @@ private:
                 display_max_height_);
             displayed_any_window = true;
         }
-        if (white_mask_window_created_) {
-            cv::imshow(kWhiteMaskWindow, white_mask);
+        if (white_final_mask_window_created_) {
+            cv::imshow(kWhiteFinalMaskWindow, white_final_mask);
             resizeWindowToFitImage(
-                kWhiteMaskWindow,
-                white_mask,
+                kWhiteFinalMaskWindow,
+                white_final_mask,
                 display_max_width_,
                 display_max_height_);
             displayed_any_window = true;
@@ -979,8 +1009,8 @@ private:
             }
         }
 
-        cv::Mat white_mask;
-        cv::bitwise_and(reconstructed_mask, morph_mask, white_mask);
+        cv::Mat white_final_mask;
+        cv::bitwise_and(reconstructed_mask, morph_mask, white_final_mask);
 
         publishAndDisplay(
             morph_msg->header,
@@ -991,7 +1021,7 @@ private:
             width_supported_skeleton,
             length_filtered_skeleton_mask,
             reconstructed_mask,
-            white_mask,
+            white_final_mask,
             green_mask,
             black_mask,
             noise_mask);

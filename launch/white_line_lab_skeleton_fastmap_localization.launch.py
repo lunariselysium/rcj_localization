@@ -31,13 +31,11 @@ def legacy_arg_used_condition(name):
 
 
 def generate_launch_description():
+    package_share = FindPackageShare("rcj_localization")
     fastmap_default = PathJoinSubstitution(
-        [
-            FindPackageShare("rcj_localization"),
-            "config",
-            "undistort_map_20260414_204537_fast.xml",
-        ]
+        [package_share, "config", "undistort_map_20260414_204537_fast.xml"]
     )
+    map_yaml_default = PathJoinSubstitution([package_share, "maps", "rcj_map.yaml"])
 
     port = LaunchConfiguration("port")
     baudrate = LaunchConfiguration("baudrate")
@@ -49,6 +47,10 @@ def generate_launch_description():
     fastmap_file = LaunchConfiguration("fastmap_file")
     input_transport = LaunchConfiguration("input_transport")
     interpolation = LaunchConfiguration("interpolation")
+    map_yaml_file = LaunchConfiguration("map_yaml_file")
+    use_fake_yaw = LaunchConfiguration("use_fake_yaw")
+    yaw_topic = LaunchConfiguration("yaw_topic")
+    mask_topic = LaunchConfiguration("mask_topic")
 
     morph_node_name = "white_line_lab_morph_node"
     skeleton_show_white_final_mask = resolve_legacy_bool(
@@ -67,6 +69,18 @@ def generate_launch_description():
         DeclareLaunchArgument("fastmap_file", default_value=fastmap_default),
         DeclareLaunchArgument("input_transport", default_value="raw"),
         DeclareLaunchArgument("interpolation", default_value="linear"),
+        DeclareLaunchArgument("map_yaml_file", default_value=map_yaml_default),
+        DeclareLaunchArgument("use_fake_yaw", default_value="true"),
+        DeclareLaunchArgument("yaw_topic", default_value="/robot/yaw"),
+        DeclareLaunchArgument(
+            "mask_topic",
+            default_value="/white_line_skeleton_filter_node/white_final_mask",
+        ),
+        DeclareLaunchArgument("meters_per_pixel", default_value="-1.0"),
+        DeclareLaunchArgument("forward_axis", default_value="__unset__"),
+        DeclareLaunchArgument("left_axis", default_value="__unset__"),
+        DeclareLaunchArgument("max_points", default_value="5000"),
+        DeclareLaunchArgument("num_particles", default_value="1000"),
         DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
         DeclareLaunchArgument("camera_show_published_image", default_value="true"),
         DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
@@ -207,6 +221,67 @@ def generate_launch_description():
                         ),
                         "show_white_final_mask": skeleton_show_white_final_mask,
                         "show_debug_image": LaunchConfiguration("skeleton_show_debug_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="nav2_map_server",
+                executable="map_server",
+                name="map_server",
+                output="screen",
+                parameters=[{"yaml_filename": map_yaml_file}],
+            ),
+            Node(
+                package="nav2_lifecycle_manager",
+                executable="lifecycle_manager",
+                name="lifecycle_manager_localization",
+                output="screen",
+                parameters=[{"autostart": True, "node_names": ["map_server"]}],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="yaw_publisher.py",
+                name="yaw_publisher",
+                output="screen",
+                condition=IfCondition(use_fake_yaw),
+                remappings=[("/robot/yaw", yaw_topic)],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="topdown_mask_points_node",
+                name="topdown_mask_points_node",
+                output="screen",
+                parameters=[
+                    {
+                        "mask_topic": mask_topic,
+                        "output_topic": "/field_line_observations",
+                        "meters_per_pixel": ParameterValue(
+                            LaunchConfiguration("meters_per_pixel"),
+                            value_type=float,
+                        ),
+                        "forward_axis": LaunchConfiguration("forward_axis"),
+                        "left_axis": LaunchConfiguration("left_axis"),
+                        "max_points": ParameterValue(
+                            LaunchConfiguration("max_points"),
+                            value_type=int,
+                        ),
+                    }
+                ],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="pf_localization_node",
+                name="pf_localization_node",
+                output="screen",
+                parameters=[
+                    {
+                        "num_particles": ParameterValue(
+                            LaunchConfiguration("num_particles"),
+                            value_type=int,
+                        ),
+                        "map_topic": "/map",
+                        "yaw_topic": yaw_topic,
+                        "observations_topic": "/field_line_observations",
                     }
                 ],
             ),

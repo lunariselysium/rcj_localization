@@ -10,7 +10,7 @@ def generate_launch_description():
         [
             FindPackageShare("rcj_localization"),
             "config",
-            "undistort_map_20260413_115400_fast.xml",
+            "undistort_map_20260414_204537_fast.xml",
         ]
     )
 
@@ -20,42 +20,12 @@ def generate_launch_description():
     frame_id = LaunchConfiguration("frame_id")
     camera_info_topic = LaunchConfiguration("camera_info_topic")
     input_topic = LaunchConfiguration("input_topic")
+    output_topic = LaunchConfiguration("output_topic")
     fastmap_file = LaunchConfiguration("fastmap_file")
     input_transport = LaunchConfiguration("input_transport")
     interpolation = LaunchConfiguration("interpolation")
 
     morph_node_name = "white_line_lab_morph_node"
-
-    remap_specs = [
-        (
-            "white_morph_mask",
-            f"/{morph_node_name}/white_morph_mask",
-            "/white_line_lab_remap/white_morph_mask",
-            "white_line_lab_remap_white_morph_mask_node",
-            "remap_white_morph",
-        ),
-        (
-            "green_mask",
-            f"/{morph_node_name}/green_mask",
-            "/white_line_lab_remap/green_mask",
-            "white_line_lab_remap_green_mask_node",
-            "remap_green",
-        ),
-        (
-            "black_mask",
-            f"/{morph_node_name}/black_mask",
-            "/white_line_lab_remap/black_mask",
-            "white_line_lab_remap_black_mask_node",
-            "remap_black",
-        ),
-        (
-            "noise_mask",
-            f"/{morph_node_name}/noise_mask",
-            "/white_line_lab_remap/noise_mask",
-            "white_line_lab_remap_noise_mask_node",
-            "remap_noise",
-        ),
-    ]
 
     launch_arguments = [
         DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),
@@ -64,13 +34,18 @@ def generate_launch_description():
         DeclareLaunchArgument("frame_id", default_value="camera"),
         DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
         DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
+        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
         DeclareLaunchArgument("fastmap_file", default_value=fastmap_default),
         DeclareLaunchArgument("input_transport", default_value="raw"),
-        DeclareLaunchArgument("interpolation", default_value="nearest"),
+        DeclareLaunchArgument("interpolation", default_value="linear"),
 
 
         DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
         DeclareLaunchArgument("camera_show_published_image", default_value="true"),
+
+        DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("remap_show_input_image", default_value="true"),
+        DeclareLaunchArgument("remap_show_output_image", default_value="true"),
 
         DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
         DeclareLaunchArgument("morph_show_input_image", default_value="false"),
@@ -88,44 +63,17 @@ def generate_launch_description():
         DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),
         DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),
         DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),
         DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),
         DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="false"),
+        DeclareLaunchArgument(
+            "skeleton_show_length_filtered_skeleton_mask",
+            default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
+        ),
         DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="false"),
         DeclareLaunchArgument("skeleton_show_white_mask", default_value="false"),
         DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
-    ]
-
-    for _, _, _, _, arg_prefix in remap_specs:
-        launch_arguments.extend(
-            [
-                DeclareLaunchArgument(f"{arg_prefix}_enable_image_view", default_value="false"),
-                DeclareLaunchArgument(f"{arg_prefix}_show_input_image", default_value="true"),
-                DeclareLaunchArgument(f"{arg_prefix}_show_output_image", default_value="true"),
-            ]
-        )
-
-    remap_nodes = [
-        Node(
-            package="rcj_localization",
-            executable="fastmap_remap_node",
-            name=node_name,
-            output="screen",
-            parameters=[
-                {
-                    "fastmap_file": fastmap_file,
-                    "input_topic": source_topic,
-                    "output_topic": remapped_topic,
-                    "input_transport": input_transport,
-                    "interpolation": interpolation,
-                    "enable_image_view": LaunchConfiguration(f"{arg_prefix}_enable_image_view"),
-                    "show_input_image": LaunchConfiguration(f"{arg_prefix}_show_input_image"),
-                    "show_output_image": LaunchConfiguration(f"{arg_prefix}_show_output_image"),
-                }
-            ],
-        )
-        for _, source_topic, remapped_topic, node_name, arg_prefix in remap_specs
     ]
 
     return LaunchDescription(
@@ -151,12 +99,30 @@ def generate_launch_description():
             ),
             Node(
                 package="rcj_localization",
+                executable="fastmap_remap_node",
+                name="white_line_lab_input_remap_node",
+                output="screen",
+                parameters=[
+                    {
+                        "fastmap_file": fastmap_file,
+                        "input_topic": input_topic,
+                        "output_topic": output_topic,
+                        "input_transport": input_transport,
+                        "interpolation": interpolation,
+                        "enable_image_view": LaunchConfiguration("remap_enable_image_view"),
+                        "show_input_image": LaunchConfiguration("remap_show_input_image"),
+                        "show_output_image": LaunchConfiguration("remap_show_output_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="rcj_localization",
                 executable="white_line_lab_morph_node",
                 name=morph_node_name,
                 output="screen",
                 parameters=[
                     {
-                        "input_topic": input_topic,
+                        "input_topic": output_topic,
                         "green_a_max": 117,
                         "enable_image_view": LaunchConfiguration("morph_enable_image_view"),
                         "show_input_image": LaunchConfiguration("morph_show_input_image"),
@@ -171,7 +137,6 @@ def generate_launch_description():
                     }
                 ],
             ),
-            *remap_nodes,
             Node(
                 package="rcj_localization",
                 executable="white_line_skeleton_filter_node",
@@ -179,10 +144,10 @@ def generate_launch_description():
                 output="screen",
                 parameters=[
                     {
-                        "morph_mask_topic": "/white_line_lab_remap/white_morph_mask",
-                        "green_mask_topic": "/white_line_lab_remap/green_mask",
-                        "black_mask_topic": "/white_line_lab_remap/black_mask",
-                        "noise_mask_topic": "/white_line_lab_remap/noise_mask",
+                        "morph_mask_topic": f"/{morph_node_name}/white_morph_mask",
+                        "green_mask_topic": f"/{morph_node_name}/green_mask",
+                        "black_mask_topic": f"/{morph_node_name}/black_mask",
+                        "noise_mask_topic": f"/{morph_node_name}/noise_mask",
                         "orientation_window_radius_px": 5,
                         "min_orientation_neighbors": 6,
                         "enable_image_view": LaunchConfiguration("skeleton_enable_image_view"),
@@ -200,8 +165,11 @@ def generate_launch_description():
                         "show_width_supported_skeleton_mask": LaunchConfiguration(
                             "skeleton_show_width_supported_skeleton_mask"
                         ),
+                        "show_length_filtered_skeleton_mask": LaunchConfiguration(
+                            "skeleton_show_length_filtered_skeleton_mask"
+                        ),
                         "show_supported_skeleton_mask": LaunchConfiguration(
-                            "skeleton_show_supported_skeleton_mask"
+                            "skeleton_show_length_filtered_skeleton_mask"
                         ),
                         "show_reconstructed_mask": LaunchConfiguration(
                             "skeleton_show_reconstructed_mask"

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <chrono>
 #include <memory>
@@ -21,6 +22,9 @@
 #include <sensor_msgs/msg/image.hpp>
 
 namespace {
+
+constexpr char kInputWindowName[] = "FastMap Remap Input";
+constexpr char kOutputWindowName[] = "FastMap Remap Output";
 
 cv::Size fitWithinBounds(const cv::Size& image_size, int max_width, int max_height)
 {
@@ -59,9 +63,9 @@ public:
     FastMapRemapNode()
         : Node("fastmap_remap_node")
     {
-        const auto fastMapPath = declare_parameter<std::string>("fastmap_file", "/home/terry/RCJ/localization_ws/src/rcj_localization/config/undistort_map_20260413_115400_fast.xml");
-        inputTopic_ = declare_parameter<std::string>("input_topic", "/camera/image_raw");
-        outputTopic_ = declare_parameter<std::string>("output_topic", "/camera/image_remapped");
+        const auto fastMapPath = declare_parameter<std::string>("fastmap_file", "");
+        const auto inputTopic = declare_parameter<std::string>("input_topic", "/image_raw");
+        const auto outputTopic = declare_parameter<std::string>("output_topic", "/image_remapped");
         const auto inputTransport = declare_parameter<std::string>("input_transport", "raw");
         const auto interpolation = declare_parameter<std::string>("interpolation", "linear");
         declare_parameter("enable_image_view", false);
@@ -72,33 +76,33 @@ public:
 
         loadFastMaps(fastMapPath);
         interpolationMode_ = parseInterpolation(interpolation);
-        inputWindowName_ = std::string(get_name()) + " input_image";
-        outputWindowName_ = std::string(get_name()) + " output_image";
         syncImageViewState();
 
         publisher_ = image_transport::create_publisher(
             this,
-            outputTopic_,
+            outputTopic,
             rmw_qos_profile_sensor_data);
 
         subscription_ = image_transport::create_subscription(
             this,
-            inputTopic_,
+            inputTopic,
             std::bind(&FastMapRemapNode::imageCallback, this, std::placeholders::_1),
             inputTransport,
             rmw_qos_profile_sensor_data);
 
         RCLCPP_INFO(get_logger(), "Loaded fast maps from: %s", fastMapPath.c_str());
-        RCLCPP_INFO(get_logger(), "Subscribed to: %s", inputTopic_.c_str());
-        RCLCPP_INFO(get_logger(), "Publishing to: %s", outputTopic_.c_str());
-        RCLCPP_INFO(get_logger(), "Input transport: %s", inputTransport.c_str());
-        RCLCPP_INFO(get_logger(), "Interpolation: %s", interpolation.c_str());
         RCLCPP_INFO(
             get_logger(),
-            "Image view: enable_image_view=%s show_input_image=%s show_output_image=%s",
-            enableImageView_ ? "true" : "false",
-            showInputImage_ ? "true" : "false",
-            showOutputImage_ ? "true" : "false");
+            "Fast map dimensions: source=%dx%d output=%dx%d",
+            sourceWidth_,
+            sourceHeight_,
+            outputWidth_,
+            outputHeight_);
+        RCLCPP_INFO(get_logger(), "Subscribed to: %s", inputTopic.c_str());
+        RCLCPP_INFO(get_logger(), "Publishing to: %s", outputTopic.c_str());
+        RCLCPP_INFO(get_logger(), "Input transport: %s", inputTransport.c_str());
+        RCLCPP_INFO(get_logger(), "Interpolation: %s", interpolation.c_str());
+        RCLCPP_INFO(get_logger(), "Image view enabled: %s", enableImageView_ ? "true" : "false");
     }
 
     ~FastMapRemapNode() override
@@ -107,13 +111,18 @@ public:
     }
 
 private:
-    void loadDisplayParameters()
+    int parseInterpolation(const std::string& interpolation) const
     {
-        enableImageView_ = get_parameter("enable_image_view").as_bool();
-        showInputImage_ = get_parameter("show_input_image").as_bool();
-        showOutputImage_ = get_parameter("show_output_image").as_bool();
-        displayMaxWidth_ = std::max(1, static_cast<int>(get_parameter("display_max_width").as_int()));
-        displayMaxHeight_ = std::max(1, static_cast<int>(get_parameter("display_max_height").as_int()));
+        if (interpolation == "nearest") {
+            return cv::INTER_NEAREST;
+        }
+        if (interpolation == "linear") {
+            return cv::INTER_LINEAR;
+        }
+
+        throw std::runtime_error(
+            "Unsupported interpolation '" + interpolation +
+            "'. Supported values: nearest, linear.");
     }
 
     void syncWindow(const std::string& window_name, bool should_show, bool& created)
@@ -129,29 +138,50 @@ private:
 
     void syncImageViewState()
     {
-        loadDisplayParameters();
-        syncWindow(inputWindowName_, enableImageView_ && showInputImage_, inputWindowCreated_);
-        syncWindow(outputWindowName_, enableImageView_ && showOutputImage_, outputWindowCreated_);
+        enableImageView_ = get_parameter("enable_image_view").as_bool();
+        showInputImage_ = get_parameter("show_input_image").as_bool();
+        showOutputImage_ = get_parameter("show_output_image").as_bool();
+        displayMaxWidth_ = std::max(1, static_cast<int>(get_parameter("display_max_width").as_int()));
+        displayMaxHeight_ = std::max(1, static_cast<int>(get_parameter("display_max_height").as_int()));
+
+        const bool displayAvailable =
+            std::getenv("DISPLAY") != nullptr || std::getenv("WAYLAND_DISPLAY") != nullptr;
+        if (enableImageView_ && !displayAvailable) {
+            if (!headlessWarned_) {
+                RCLCPP_WARN(
+                    get_logger(),
+                    "enable_image_view=true but no DISPLAY/WAYLAND_DISPLAY is available; "
+                    "disabling OpenCV image view for this process.");
+                headlessWarned_ = true;
+            }
+            enableImageView_ = false;
+        }
+
+        syncWindow(kInputWindowName, enableImageView_ && showInputImage_, inputWindowCreated_);
+        syncWindow(kOutputWindowName, enableImageView_ && showOutputImage_, outputWindowCreated_);
+    }
+
+    void showDebugImages(const cv::Mat& input_image, const cv::Mat& output_image)
+    {
+        if (inputWindowCreated_) {
+            cv::imshow(kInputWindowName, input_image);
+            resizeWindowToFitImage(kInputWindowName, input_image, displayMaxWidth_, displayMaxHeight_);
+        }
+
+        if (outputWindowCreated_) {
+            cv::imshow(kOutputWindowName, output_image);
+            resizeWindowToFitImage(kOutputWindowName, output_image, displayMaxWidth_, displayMaxHeight_);
+        }
+
+        if (inputWindowCreated_ || outputWindowCreated_) {
+            cv::waitKey(1);
+        }
     }
 
     void destroyDebugWindows()
     {
-        syncWindow(inputWindowName_, false, inputWindowCreated_);
-        syncWindow(outputWindowName_, false, outputWindowCreated_);
-    }
-
-    int parseInterpolation(const std::string& interpolation) const
-    {
-        if (interpolation == "nearest") {
-            return cv::INTER_NEAREST;
-        }
-        if (interpolation == "linear") {
-            return cv::INTER_LINEAR;
-        }
-
-        throw std::runtime_error(
-            "Unsupported interpolation '" + interpolation +
-            "'. Supported values: nearest, linear.");
+        syncWindow(kInputWindowName, false, inputWindowCreated_);
+        syncWindow(kOutputWindowName, false, outputWindowCreated_);
     }
 
     void loadFastMaps(const std::string& fastMapPath)
@@ -167,6 +197,8 @@ private:
 
         fs["source_width"] >> sourceWidth_;
         fs["source_height"] >> sourceHeight_;
+        fs["output_width"] >> outputWidth_;
+        fs["output_height"] >> outputHeight_;
         fs["fast_map_1"] >> fastMap1_;
         fs["fast_map_2"] >> fastMap2_;
         fs.release();
@@ -174,13 +206,26 @@ private:
         if (fastMap1_.empty() || fastMap2_.empty()) {
             throw std::runtime_error("Fast map file is missing fast_map_1 or fast_map_2: " + fastMapPath);
         }
+
+        if (fastMap1_.size() != fastMap2_.size()) {
+            throw std::runtime_error("Fast map matrices have different sizes: " + fastMapPath);
+        }
+
+        if (outputWidth_ <= 0 || outputHeight_ <= 0) {
+            outputWidth_ = fastMap1_.cols;
+            outputHeight_ = fastMap1_.rows;
+        }
+
+        if (outputWidth_ != fastMap1_.cols || outputHeight_ != fastMap1_.rows) {
+            throw std::runtime_error("Fast map output_width/output_height does not match matrix size: " + fastMapPath);
+        }
     }
 
     void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
     {
         try {
-            syncImageViewState();
             const auto cvInput = cv_bridge::toCvShare(msg, msg->encoding);
+            syncImageViewState();
 
             if (sourceWidth_ > 0 && sourceHeight_ > 0 &&
                 (cvInput->image.cols != sourceWidth_ || cvInput->image.rows != sourceHeight_)) {
@@ -215,29 +260,7 @@ private:
 
             auto outputMsg = cv_bridge::CvImage(msg->header, msg->encoding, remappedImage_).toImageMsg();
             publisher_.publish(*outputMsg);
-
-            bool displayed_any_window = false;
-            if (inputWindowCreated_) {
-                cv::imshow(inputWindowName_, cvInput->image);
-                resizeWindowToFitImage(
-                    inputWindowName_,
-                    cvInput->image,
-                    displayMaxWidth_,
-                    displayMaxHeight_);
-                displayed_any_window = true;
-            }
-            if (outputWindowCreated_) {
-                cv::imshow(outputWindowName_, remappedImage_);
-                resizeWindowToFitImage(
-                    outputWindowName_,
-                    remappedImage_,
-                    displayMaxWidth_,
-                    displayMaxHeight_);
-                displayed_any_window = true;
-            }
-            if (displayed_any_window) {
-                cv::waitKey(1);
-            }
+            showDebugImages(cvInput->image, remappedImage_);
 
             RCLCPP_INFO(
                 get_logger(),
@@ -265,19 +288,18 @@ private:
 
     image_transport::Subscriber subscription_;
     image_transport::Publisher publisher_;
-    std::string inputTopic_;
-    std::string outputTopic_;
-    std::string inputWindowName_;
-    std::string outputWindowName_;
     cv::Mat fastMap1_;
     cv::Mat fastMap2_;
     cv::Mat remappedImage_;
     int sourceWidth_ = 0;
     int sourceHeight_ = 0;
+    int outputWidth_ = 0;
+    int outputHeight_ = 0;
     int interpolationMode_ = cv::INTER_LINEAR;
     bool enableImageView_ = false;
     bool showInputImage_ = true;
     bool showOutputImage_ = true;
+    bool headlessWarned_ = false;
     bool inputWindowCreated_ = false;
     bool outputWindowCreated_ = false;
     int displayMaxWidth_ = 960;

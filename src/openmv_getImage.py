@@ -7,18 +7,18 @@ BLINK_LED_ID = 2
 LED_TOGGLE_EVERY_N_FRAMES = 1
 
 FRAME_MAGIC = b"\xAA\xBB"
-JPEG_QUALITY = 85
+JPEG_QUALITY = 50
 
 led = pyb.LED(BLINK_LED_ID)
 frame_count = 0
 
 sensor.reset()
 sensor.set_pixformat(sensor.RGB565)
-sensor.set_framesize(sensor.QXGA)
+sensor.set_framesize(sensor.SVGA)
 
-sensor.set_auto_exposure(False, exposure_us=100000)  # 10000us = 10ms
+# sensor.set_auto_exposure(False, exposure_us=100000)  # 10000us = 10ms
 # 关闭自动增益（非常重要！）
-sensor.set_auto_gain(False, gain_db=15)
+# ensor.set_auto_gain(False, gain_db=15)
 
 
 sensor.skip_frames(time=2000)

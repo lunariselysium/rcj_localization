@@ -31,10 +31,11 @@ constexpr char kSkeletonWindow[] = "Skeleton Filter Skeletonization";
 constexpr char kOrientationValidWindow[] = "Skeleton Filter Orientation Valid";
 constexpr char kSideSupportWindow[] = "Skeleton Filter Side Color Filter";
 constexpr char kWidthSupportedWindow[] = "Skeleton Filter Width Filter";
-constexpr char kSupportedSkeletonWindow[] = "Skeleton Filter Length Filter";
+constexpr char kLengthFilteredSkeletonWindow[] = "Skeleton Filter Length-Filtered Skeleton";
 constexpr char kReconstructedWindow[] = "Skeleton Filter Reconstruction";
 constexpr char kWhiteMaskWindow[] = "Skeleton Filter Final White Mask";
 constexpr char kDebugWindow[] = "Skeleton Filter Composite Debug";
+constexpr bool kDefaultShowLengthFilteredSkeletonMask = true;
 
 cv::Size fitWithinBounds(const cv::Size &image_size, int max_width, int max_height) {
     const int safe_max_width = std::max(1, max_width);
@@ -324,7 +325,7 @@ cv::Mat createDebugComposite(
     const cv::Mat &orientation_valid_mask,
     const cv::Mat &side_support_mask,
     const cv::Mat &width_supported_skeleton_mask,
-    const cv::Mat &supported_skeleton_mask,
+    const cv::Mat &length_filtered_skeleton_mask,
     const cv::Mat &white_mask) {
     cv::Mat debug_image(green_mask.size(), CV_8UC3, cv::Scalar(30, 70, 30));
     debug_image =
@@ -347,7 +348,7 @@ cv::Mat createDebugComposite(
         cv::Scalar(255, 128, 0));
     debug_image = rcj_loc::vision::debug::createMaskOverlay(
         debug_image,
-        supported_skeleton_mask,
+        length_filtered_skeleton_mask,
         cv::Scalar(255, 255, 0));
     debug_image =
         rcj_loc::vision::debug::createMaskOverlay(debug_image, white_mask, cv::Scalar(255, 255, 255));
@@ -399,7 +400,12 @@ public:
         this->declare_parameter("show_orientation_valid_mask", true);
         this->declare_parameter("show_side_support_mask", true);
         this->declare_parameter("show_width_supported_skeleton_mask", true);
-        this->declare_parameter("show_supported_skeleton_mask", true);
+        this->declare_parameter(
+            "show_length_filtered_skeleton_mask",
+            kDefaultShowLengthFilteredSkeletonMask);
+        this->declare_parameter(
+            "show_supported_skeleton_mask",
+            kDefaultShowLengthFilteredSkeletonMask);
         this->declare_parameter("show_reconstructed_mask", true);
         this->declare_parameter("show_white_mask", true);
         this->declare_parameter("show_debug_image", true);
@@ -416,7 +422,9 @@ public:
             this->create_publisher<sensor_msgs::msg::Image>("~/side_support_mask", 10);
         width_supported_skeleton_mask_pub_ =
             this->create_publisher<sensor_msgs::msg::Image>("~/width_supported_skeleton_mask", 10);
-        supported_skeleton_mask_pub_ =
+        length_filtered_skeleton_mask_pub_ =
+            this->create_publisher<sensor_msgs::msg::Image>("~/length_filtered_skeleton_mask", 10);
+        legacy_supported_skeleton_mask_pub_ =
             this->create_publisher<sensor_msgs::msg::Image>("~/supported_skeleton_mask", 10);
         reconstructed_mask_pub_ =
             this->create_publisher<sensor_msgs::msg::Image>("~/reconstructed_mask", 10);
@@ -448,7 +456,8 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr orientation_valid_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr side_support_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr width_supported_skeleton_mask_pub_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr supported_skeleton_mask_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr length_filtered_skeleton_mask_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr legacy_supported_skeleton_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr reconstructed_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr white_mask_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_pub_;
@@ -479,7 +488,7 @@ private:
     bool show_orientation_valid_mask_ = true;
     bool show_side_support_mask_ = true;
     bool show_width_supported_skeleton_mask_ = true;
-    bool show_supported_skeleton_mask_ = true;
+    bool show_length_filtered_skeleton_mask_ = kDefaultShowLengthFilteredSkeletonMask;
     bool show_reconstructed_mask_ = true;
     bool show_white_mask_ = true;
     bool show_debug_image_ = true;
@@ -491,12 +500,55 @@ private:
     bool orientation_valid_window_created_ = false;
     bool side_support_window_created_ = false;
     bool width_supported_window_created_ = false;
-    bool supported_skeleton_window_created_ = false;
+    bool length_filtered_skeleton_window_created_ = false;
     bool reconstructed_window_created_ = false;
     bool white_mask_window_created_ = false;
     bool debug_window_created_ = false;
+    bool warned_deprecated_show_supported_skeleton_mask_param_ = false;
     int display_max_width_ = 960;
     int display_max_height_ = 720;
+
+    bool isParameterOverridden(const char *name) {
+        const auto &overrides = this->get_node_parameters_interface()->get_parameter_overrides();
+        return overrides.find(name) != overrides.end();
+    }
+
+    bool loadLengthFilteredSkeletonMaskToggle() {
+        const bool current_value =
+            this->get_parameter("show_length_filtered_skeleton_mask").as_bool();
+        const bool legacy_value =
+            this->get_parameter("show_supported_skeleton_mask").as_bool();
+        const bool current_overridden =
+            isParameterOverridden("show_length_filtered_skeleton_mask");
+        const bool legacy_overridden =
+            isParameterOverridden("show_supported_skeleton_mask");
+
+        if (current_overridden) {
+            if (legacy_overridden && current_value != legacy_value &&
+                !warned_deprecated_show_supported_skeleton_mask_param_) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Both 'show_length_filtered_skeleton_mask' and deprecated "
+                    "'show_supported_skeleton_mask' were provided. "
+                    "Using 'show_length_filtered_skeleton_mask'.");
+                warned_deprecated_show_supported_skeleton_mask_param_ = true;
+            }
+            return current_value;
+        }
+
+        if (legacy_overridden) {
+            if (!warned_deprecated_show_supported_skeleton_mask_param_) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Parameter 'show_supported_skeleton_mask' is deprecated. "
+                    "Use 'show_length_filtered_skeleton_mask' instead.");
+                warned_deprecated_show_supported_skeleton_mask_param_ = true;
+            }
+            return legacy_value;
+        }
+
+        return current_value;
+    }
 
     void loadRuntimeParameters() {
         morph_mask_topic_ = this->get_parameter("morph_mask_topic").as_string();
@@ -534,8 +586,7 @@ private:
         show_side_support_mask_ = this->get_parameter("show_side_support_mask").as_bool();
         show_width_supported_skeleton_mask_ =
             this->get_parameter("show_width_supported_skeleton_mask").as_bool();
-        show_supported_skeleton_mask_ =
-            this->get_parameter("show_supported_skeleton_mask").as_bool();
+        show_length_filtered_skeleton_mask_ = loadLengthFilteredSkeletonMaskToggle();
         show_reconstructed_mask_ = this->get_parameter("show_reconstructed_mask").as_bool();
         show_white_mask_ = this->get_parameter("show_white_mask").as_bool();
         show_debug_image_ = this->get_parameter("show_debug_image").as_bool();
@@ -547,7 +598,7 @@ private:
     bool anyImageWindowRequested() const {
         return show_morph_mask_ || show_green_mask_ || show_black_mask_ || show_noise_mask_ ||
                show_skeleton_mask_ || show_orientation_valid_mask_ || show_side_support_mask_ ||
-               show_width_supported_skeleton_mask_ || show_supported_skeleton_mask_ ||
+               show_width_supported_skeleton_mask_ || show_length_filtered_skeleton_mask_ ||
                show_reconstructed_mask_ || show_white_mask_ || show_debug_image_;
     }
 
@@ -570,7 +621,10 @@ private:
         syncWindow(kOrientationValidWindow, false, orientation_valid_window_created_);
         syncWindow(kSideSupportWindow, false, side_support_window_created_);
         syncWindow(kWidthSupportedWindow, false, width_supported_window_created_);
-        syncWindow(kSupportedSkeletonWindow, false, supported_skeleton_window_created_);
+        syncWindow(
+            kLengthFilteredSkeletonWindow,
+            false,
+            length_filtered_skeleton_window_created_);
         syncWindow(kReconstructedWindow, false, reconstructed_window_created_);
         syncWindow(kWhiteMaskWindow, false, white_mask_window_created_);
         syncWindow(kDebugWindow, false, debug_window_created_);
@@ -597,9 +651,9 @@ private:
             master_enabled && show_width_supported_skeleton_mask_,
             width_supported_window_created_);
         syncWindow(
-            kSupportedSkeletonWindow,
-            master_enabled && show_supported_skeleton_mask_,
-            supported_skeleton_window_created_);
+            kLengthFilteredSkeletonWindow,
+            master_enabled && show_length_filtered_skeleton_mask_,
+            length_filtered_skeleton_window_created_);
         syncWindow(
             kReconstructedWindow,
             master_enabled && show_reconstructed_mask_,
@@ -636,7 +690,7 @@ private:
         const cv::Mat &orientation_valid_mask,
         const cv::Mat &side_support_mask,
         const cv::Mat &width_supported_skeleton_mask,
-        const cv::Mat &supported_skeleton_mask,
+        const cv::Mat &length_filtered_skeleton_mask,
         const cv::Mat &reconstructed_mask,
         const cv::Mat &white_mask,
         const cv::Mat &green_mask,
@@ -649,7 +703,7 @@ private:
             orientation_valid_mask,
             side_support_mask,
             width_supported_skeleton_mask,
-            supported_skeleton_mask,
+            length_filtered_skeleton_mask,
             white_mask);
 
         skeleton_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", skeleton_mask).toImageMsg());
@@ -659,8 +713,10 @@ private:
             *cv_bridge::CvImage(header, "mono8", side_support_mask).toImageMsg());
         width_supported_skeleton_mask_pub_->publish(
             *cv_bridge::CvImage(header, "mono8", width_supported_skeleton_mask).toImageMsg());
-        supported_skeleton_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", supported_skeleton_mask).toImageMsg());
+        length_filtered_skeleton_mask_pub_->publish(
+            *cv_bridge::CvImage(header, "mono8", length_filtered_skeleton_mask).toImageMsg());
+        legacy_supported_skeleton_mask_pub_->publish(
+            *cv_bridge::CvImage(header, "mono8", length_filtered_skeleton_mask).toImageMsg());
         reconstructed_mask_pub_->publish(
             *cv_bridge::CvImage(header, "mono8", reconstructed_mask).toImageMsg());
         white_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", white_mask).toImageMsg());
@@ -719,11 +775,11 @@ private:
                 display_max_height_);
             displayed_any_window = true;
         }
-        if (supported_skeleton_window_created_) {
-            cv::imshow(kSupportedSkeletonWindow, supported_skeleton_mask);
+        if (length_filtered_skeleton_window_created_) {
+            cv::imshow(kLengthFilteredSkeletonWindow, length_filtered_skeleton_mask);
             resizeWindowToFitImage(
-                kSupportedSkeletonWindow,
-                supported_skeleton_mask,
+                kLengthFilteredSkeletonWindow,
+                length_filtered_skeleton_mask,
                 display_max_width_,
                 display_max_height_);
             displayed_any_window = true;
@@ -901,13 +957,13 @@ private:
             }
         }
 
-        const cv::Mat supported_skeleton_mask =
+        const cv::Mat length_filtered_skeleton_mask =
             filterSkeletonByLength(width_supported_skeleton, min_skeleton_length_px_);
 
         cv::Mat reconstructed_mask = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
-        for (int y = 0; y < supported_skeleton_mask.rows; ++y) {
-            for (int x = 0; x < supported_skeleton_mask.cols; ++x) {
-                if (supported_skeleton_mask.at<uchar>(y, x) == 0) {
+        for (int y = 0; y < length_filtered_skeleton_mask.rows; ++y) {
+            for (int x = 0; x < length_filtered_skeleton_mask.cols; ++x) {
+                if (length_filtered_skeleton_mask.at<uchar>(y, x) == 0) {
                     continue;
                 }
                 const float local_width_px = local_width_map.at<float>(y, x);
@@ -933,7 +989,7 @@ private:
             orientation_valid_mask,
             side_support_mask,
             width_supported_skeleton,
-            supported_skeleton_mask,
+            length_filtered_skeleton_mask,
             reconstructed_mask,
             white_mask,
             green_mask,

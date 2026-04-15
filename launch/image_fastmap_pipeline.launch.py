@@ -10,7 +10,7 @@ def generate_launch_description():
         [
             FindPackageShare("rcj_localization"),
             "config",
-            "undistort_map_20260413_115400_fast.xml",
+            "undistort_map_20260414_204537_fast.xml",
         ]
     )
 
@@ -26,6 +26,9 @@ def generate_launch_description():
             DeclareLaunchArgument("fastmap_file", default_value=fastmap_default),
             DeclareLaunchArgument("input_transport", default_value="raw"),
             DeclareLaunchArgument("interpolation", default_value="linear"),
+            DeclareLaunchArgument("remap_enable_image_view", default_value="true"),
+            DeclareLaunchArgument("remap_show_input_image", default_value="true"),
+            DeclareLaunchArgument("remap_show_output_image", default_value="true"),
             Node(
                 package="rcj_localization",
                 executable="image_publisher.py",
@@ -54,6 +57,9 @@ def generate_launch_description():
                         "output_topic": LaunchConfiguration("output_topic"),
                         "input_transport": LaunchConfiguration("input_transport"),
                         "interpolation": LaunchConfiguration("interpolation"),
+                        "enable_image_view": LaunchConfiguration("remap_enable_image_view"),
+                        "show_input_image": LaunchConfiguration("remap_show_input_image"),
+                        "show_output_image": LaunchConfiguration("remap_show_output_image"),
                     }
                 ],
             ),

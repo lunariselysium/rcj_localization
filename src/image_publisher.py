@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import os
 import time
 
 import cv2
@@ -54,6 +55,10 @@ class OpenMVImagePublisher(Node):
         self.show_published_image = True
         self.display_max_width = 960
         self.display_max_height = 720
+        self.display_available = bool(
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+        )
+        self.headless_warned = False
         self.published_window_created = False
         self.published_window_name = f"{self.get_name()} published_image"
 
@@ -91,15 +96,32 @@ class OpenMVImagePublisher(Node):
             self.published_window_created = False
 
     def sync_image_view_state(self):
-        self.enable_image_view = self.get_parameter("enable_image_view").value
-        self.show_published_image = self.get_parameter("show_published_image").value
+        self.enable_image_view = self.get_bool_parameter("enable_image_view")
+        self.show_published_image = self.get_bool_parameter("show_published_image")
         self.display_max_width = int(self.get_parameter("display_max_width").value)
         self.display_max_height = int(self.get_parameter("display_max_height").value)
+
+        if self.enable_image_view and not self.display_available:
+            if not self.headless_warned:
+                self.get_logger().warn(
+                    "enable_image_view=true but no DISPLAY/WAYLAND_DISPLAY is available; "
+                    "disabling OpenCV image view for this process."
+                )
+                self.headless_warned = True
+            self.enable_image_view = False
 
         self.sync_window(
             self.published_window_name,
             self.enable_image_view and self.show_published_image,
         )
+
+    def get_bool_parameter(self, name):
+        value = self.get_parameter(name).value
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
 
     def log_waiting(self, reason):
         now = time.monotonic()

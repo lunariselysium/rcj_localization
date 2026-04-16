@@ -264,6 +264,24 @@ target_link_libraries(pf_localization_node
   OpenMP::OpenMP_CXX
 )
 
+add_executable(topdown_pf_localization_node
+  src/topdown_pf_localization_node.cpp
+  src/particle_filter.cpp
+)
+ament_target_dependencies(topdown_pf_localization_node
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  tf2_ros
+  cv_bridge
+)
+target_link_libraries(topdown_pf_localization_node
+  ${OpenCV_LIBRARIES}
+  OpenMP::OpenMP_CXX
+)
+
 add_executable(white_line_probability_node src/white_line_probability_node.cpp)
 ament_target_dependencies(white_line_probability_node
   rclcpp
@@ -287,6 +305,7 @@ install(TARGETS
   white_line_skeleton_filter_node
   topdown_mask_points_node
   pf_localization_node
+  topdown_pf_localization_node
   white_line_probability_node
   DESTINATION lib/${PROJECT_NAME}
 )

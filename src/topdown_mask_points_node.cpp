@@ -79,7 +79,7 @@ public:
         this->declare_parameter<std::string>(
             "output_topic",
             "/field_line_observations");
-        this->declare_parameter("meters_per_pixel", -1.0);
+        this->declare_parameter("meters_per_pixel", 0.0025);
         this->declare_parameter<std::string>("forward_axis", "__unset__");
         this->declare_parameter<std::string>("left_axis", "__unset__");
         this->declare_parameter("max_points", 5000);

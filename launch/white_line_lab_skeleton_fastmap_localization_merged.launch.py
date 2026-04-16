@@ -64,6 +64,7 @@ def generate_launch_description():
     use_fake_yaw = LaunchConfiguration("use_fake_yaw")
     yaw_topic = LaunchConfiguration("yaw_topic")
     mask_topic = LaunchConfiguration("mask_topic")
+    enable_localization = LaunchConfiguration("enable_localization")
 
     morph_node_name = "white_line_lab_morph_node"
     skeleton_show_white_final_mask = resolve_legacy_bool(
@@ -89,21 +90,29 @@ def generate_launch_description():
             "mask_topic",
             default_value="/white_line_skeleton_filter_node/white_final_mask",
         ),
+        DeclareLaunchArgument("enable_localization", default_value="true"),
+        DeclareLaunchArgument("publish_debug_pointcloud", default_value="true"),
+        DeclareLaunchArgument(
+            "debug_pointcloud_topic",
+            default_value="/field_line_observations_debug",
+        ),
         DeclareLaunchArgument("enable_openmv_camera", default_value="true"),
         DeclareLaunchArgument("enable_fastmap_remap", default_value="true"),
         DeclareLaunchArgument("enable_morph_node", default_value="true"),
         DeclareLaunchArgument("enable_skeleton_filter", default_value="true"),
-        DeclareLaunchArgument("enable_pf_localization", default_value="false"),
         DeclareLaunchArgument(
             "enable_map_server",
-            default_value=LaunchConfiguration("enable_pf_localization"),
+            default_value=LaunchConfiguration("enable_localization"),
         ),
         DeclareLaunchArgument(
             "enable_lifecycle_manager",
             default_value=LaunchConfiguration("enable_map_server"),
         ),
-        DeclareLaunchArgument("enable_yaw_publisher", default_value="true"),
-        DeclareLaunchArgument("enable_topdown_mask_points", default_value="true"),
+        DeclareLaunchArgument(
+            "enable_yaw_publisher",
+            default_value=LaunchConfiguration("enable_localization"),
+        ),
+        DeclareLaunchArgument("enable_topdown_pf_localization_node", default_value="true"),
         DeclareLaunchArgument("meters_per_pixel", default_value="0.0025"),
         DeclareLaunchArgument("forward_axis", default_value="v+"),
         DeclareLaunchArgument("left_axis", default_value="u-"),
@@ -112,13 +121,13 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
         DeclareLaunchArgument("camera_show_published_image", default_value="true"),
         DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("remap_show_input_image", default_value="true"),
+        DeclareLaunchArgument("remap_show_input_image", default_value="false"),
         DeclareLaunchArgument("remap_show_output_image", default_value="true"),
         DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
         DeclareLaunchArgument("morph_show_input_image", default_value="false"),
-        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="true"),
+        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="false"),
         DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),
-        DeclareLaunchArgument("morph_show_green_mask", default_value="true"),
+        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
         DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
         DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
         DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
@@ -137,7 +146,7 @@ def generate_launch_description():
             default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
         ),
         DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),
         DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),
         DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
     ]
@@ -261,10 +270,7 @@ def generate_launch_description():
                 executable="map_server",
                 name="map_server",
                 output="screen",
-                condition=combined_true_condition(
-                    LaunchConfiguration("enable_map_server"),
-                    LaunchConfiguration("enable_pf_localization"),
-                ),
+                condition=enabled_condition("enable_map_server"),
                 parameters=[{"yaml_filename": map_yaml_file}],
             ),
             Node(
@@ -272,11 +278,7 @@ def generate_launch_description():
                 executable="lifecycle_manager",
                 name="lifecycle_manager_localization",
                 output="screen",
-                condition=combined_true_condition(
-                    LaunchConfiguration("enable_lifecycle_manager"),
-                    LaunchConfiguration("enable_map_server"),
-                    LaunchConfiguration("enable_pf_localization"),
-                ),
+                condition=enabled_condition("enable_lifecycle_manager"),
                 parameters=[{"autostart": True, "node_names": ["map_server"]}],
             ),
             Node(
@@ -292,14 +294,13 @@ def generate_launch_description():
             ),
             Node(
                 package="rcj_localization",
-                executable="topdown_mask_points_node",
-                name="topdown_mask_points_node",
+                executable="topdown_pf_localization_node",
+                name="topdown_pf_localization_node",
                 output="screen",
-                condition=enabled_condition("enable_topdown_mask_points"),
+                condition=enabled_condition("enable_topdown_pf_localization_node"),
                 parameters=[
                     {
                         "mask_topic": mask_topic,
-                        "output_topic": "/field_line_observations",
                         "meters_per_pixel": ParameterValue(
                             LaunchConfiguration("meters_per_pixel"),
                             value_type=float,
@@ -310,24 +311,23 @@ def generate_launch_description():
                             LaunchConfiguration("max_points"),
                             value_type=int,
                         ),
-                    }
-                ],
-            ),
-            Node(
-                package="rcj_localization",
-                executable="pf_localization_node",
-                name="pf_localization_node",
-                output="screen",
-                condition=enabled_condition("enable_pf_localization"),
-                parameters=[
-                    {
+                        "enable_localization": ParameterValue(
+                            enable_localization,
+                            value_type=bool,
+                        ),
+                        "publish_debug_pointcloud": ParameterValue(
+                            LaunchConfiguration("publish_debug_pointcloud"),
+                            value_type=bool,
+                        ),
+                        "debug_pointcloud_topic": LaunchConfiguration(
+                            "debug_pointcloud_topic"
+                        ),
                         "num_particles": ParameterValue(
                             LaunchConfiguration("num_particles"),
                             value_type=int,
                         ),
                         "map_topic": "/map",
                         "yaw_topic": yaw_topic,
-                        "observations_topic": "/field_line_observations",
                     }
                 ],
             ),

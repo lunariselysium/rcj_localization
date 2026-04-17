@@ -1,0 +1,406 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
+
+
+def resolve_legacy_bool(current_name, legacy_name):
+    return ParameterValue(
+        PythonExpression(
+            [
+                "'",
+                LaunchConfiguration(legacy_name),
+                "' != '__unset__' and '",
+                LaunchConfiguration(legacy_name),
+                "' or '",
+                LaunchConfiguration(current_name),
+                "'",
+            ]
+        ),
+        value_type=bool,
+    )
+
+
+def legacy_arg_used_condition(name):
+    return IfCondition(
+        PythonExpression(["'", LaunchConfiguration(name), "' != '__unset__'"])
+    )
+
+
+def enabled_condition(name):
+    return IfCondition(LaunchConfiguration(name))
+
+
+def combined_true_condition(*values):
+    expression = []
+    for idx, value in enumerate(values):
+        if idx > 0:
+            expression.append(" and ")
+        expression.extend(["'", value, "' == 'true'"])
+    return IfCondition(PythonExpression(expression))
+
+
+def generate_launch_description():
+    package_share = FindPackageShare("rcj_localization")
+    fastmap_default = PathJoinSubstitution(
+        [package_share, "config", "undistort_map_20260414_204537_fast.xml"]
+    )
+    map_yaml_default = PathJoinSubstitution([package_share, "maps", "rcj_map.yaml"])
+
+    port = LaunchConfiguration("port")
+    baudrate = LaunchConfiguration("baudrate")
+    timeout_sec = LaunchConfiguration("timeout_sec")
+    frame_id = LaunchConfiguration("frame_id")
+    camera_info_topic = LaunchConfiguration("camera_info_topic")
+    input_topic = LaunchConfiguration("input_topic")
+    output_topic = LaunchConfiguration("output_topic")
+    fastmap_file = LaunchConfiguration("fastmap_file")
+    input_transport = LaunchConfiguration("input_transport")
+    interpolation = LaunchConfiguration("interpolation")
+    map_yaml_file = LaunchConfiguration("map_yaml_file")
+    use_fake_yaw = LaunchConfiguration("use_fake_yaw")
+    yaw_topic = LaunchConfiguration("yaw_topic")
+    map_topic = LaunchConfiguration("map_topic")
+    mask_topic = LaunchConfiguration("mask_topic")
+    enable_localization = LaunchConfiguration("enable_localization")
+
+    morph_node_name = "white_line_lab_morph_node"
+    skeleton_show_white_final_mask = resolve_legacy_bool(
+        "skeleton_show_white_final_mask",
+        "skeleton_show_white_mask",
+    )
+
+    launch_arguments = [
+        DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),
+        DeclareLaunchArgument("baudrate", default_value="115200"),
+        DeclareLaunchArgument("timeout_sec", default_value="1.0"),
+        DeclareLaunchArgument("frame_id", default_value="camera"),
+        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
+        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
+        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
+        DeclareLaunchArgument("fastmap_file", default_value=fastmap_default),
+        DeclareLaunchArgument("input_transport", default_value="raw"),
+        DeclareLaunchArgument("interpolation", default_value="linear"),
+        DeclareLaunchArgument("map_yaml_file", default_value=map_yaml_default),
+        DeclareLaunchArgument("use_fake_yaw", default_value="true"),
+        DeclareLaunchArgument("yaw_topic", default_value="/robot/yaw"),  # 航向角输入话题
+        DeclareLaunchArgument("map_topic", default_value="/map"),  # 占用栅格地图话题
+        DeclareLaunchArgument(
+            "mask_topic",
+            default_value="/white_line_skeleton_filter_node/white_final_mask",
+        ),  # PF 使用的顶视白线 mask 话题
+        DeclareLaunchArgument("enable_localization", default_value="true"),  # 是否启用 PF 定位
+        DeclareLaunchArgument("publish_debug_pointcloud", default_value="true"),  # 是否发布观测点云调试话题
+        DeclareLaunchArgument(
+            "debug_pointcloud_topic",
+            default_value="/field_line_observations_debug",
+        ),  # 观测点云调试话题名
+        DeclareLaunchArgument("enable_openmv_camera", default_value="true"),
+        DeclareLaunchArgument("enable_fastmap_remap", default_value="true"),
+        DeclareLaunchArgument("enable_morph_node", default_value="true"),
+        DeclareLaunchArgument("enable_skeleton_filter", default_value="true"),
+        DeclareLaunchArgument(
+            "enable_map_server",
+            default_value=LaunchConfiguration("enable_localization"),
+        ),
+        DeclareLaunchArgument(
+            "enable_lifecycle_manager",
+            default_value=LaunchConfiguration("enable_map_server"),
+        ),
+        DeclareLaunchArgument(
+            "enable_yaw_publisher",
+            default_value=LaunchConfiguration("enable_localization"),
+        ),
+        DeclareLaunchArgument(
+            "enable_topdown_pf_localization_node_v2",
+            default_value="true",
+        ),  # 是否启动 V2 顶视 PF 节点
+        DeclareLaunchArgument("meters_per_pixel", default_value="0.0025"),  # 顶视图每像素对应米数
+        DeclareLaunchArgument("forward_axis", default_value="v+"),  # 图像前向轴映射，u+/u-/v+/v-
+        DeclareLaunchArgument("left_axis", default_value="u-"),  # 图像左向轴映射，u+/u-/v+/v-
+        DeclareLaunchArgument("max_points", default_value="5000"),  # 每帧最多采样多少个白线点
+        DeclareLaunchArgument("num_particles", default_value="1000"),  # 粒子数量
+        DeclareLaunchArgument("sigma_hit", default_value="0.10"),  # 观测高斯宽度，单位米
+        DeclareLaunchArgument("noise_xy", default_value="0.05"),  # 位置随机游走标准差，单位米
+        DeclareLaunchArgument("noise_theta", default_value="0.10"),  # 航向随机游走标准差，单位弧度
+        DeclareLaunchArgument("alpha_fast_rate", default_value="0.1"),  # 快速平均权重更新率
+        DeclareLaunchArgument("alpha_slow_rate", default_value="0.001"),  # 慢速平均权重更新率
+        DeclareLaunchArgument(
+            "random_injection_max_ratio",
+            default_value="0.25",
+        ),  # 随机重注入粒子比例上限
+        DeclareLaunchArgument("off_map_penalty", default_value="1.0"),  # 点落到地图外时的距离惩罚，单位米
+        DeclareLaunchArgument("occupancy_threshold", default_value="50"),  # 地图栅格判定为线的阈值
+        DeclareLaunchArgument(
+            "distance_transform_mask_size",
+            default_value="5",
+        ),  # 距离变换 mask size，建议 3 或 5
+        DeclareLaunchArgument("init_field_width", default_value="2.0"),  # 初始撒粒子宽度，单位米
+        DeclareLaunchArgument("init_field_height", default_value="3.0"),  # 初始撒粒子高度，单位米
+        DeclareLaunchArgument("filter_period_ms", default_value="100"),  # 滤波循环周期，单位毫秒
+        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("camera_show_published_image", default_value="true"),
+        DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("remap_show_input_image", default_value="false"),
+        DeclareLaunchArgument("remap_show_output_image", default_value="true"),
+        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("morph_show_input_image", default_value="false"),
+        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),
+        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
+        DeclareLaunchArgument("skeleton_enable_image_view", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="false"),
+        DeclareLaunchArgument(
+            "skeleton_show_length_filtered_skeleton_mask",
+            default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
+        ),
+        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),
+        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
+    ]
+
+    return LaunchDescription(
+        launch_arguments
+        + [
+            LogInfo(
+                condition=legacy_arg_used_condition("skeleton_show_white_mask"),
+                msg=(
+                    "Launch argument 'skeleton_show_white_mask' is deprecated. "
+                    "Use 'skeleton_show_white_final_mask' instead."
+                ),
+            ),
+            Node(
+                package="rcj_localization",
+                executable="image_publisher.py",
+                name="openmv_camera",
+                output="screen",
+                condition=enabled_condition("enable_openmv_camera"),
+                parameters=[
+                    {
+                        "port": port,
+                        "baudrate": baudrate,
+                        "timeout_sec": timeout_sec,
+                        "frame_id": frame_id,
+                        "image_topic": input_topic,
+                        "camera_info_topic": camera_info_topic,
+                        "enable_image_view": LaunchConfiguration("camera_enable_image_view"),
+                        "show_published_image": LaunchConfiguration("camera_show_published_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="fastmap_remap_node",
+                name="white_line_lab_input_remap_node",
+                output="screen",
+                condition=enabled_condition("enable_fastmap_remap"),
+                parameters=[
+                    {
+                        "fastmap_file": fastmap_file,
+                        "input_topic": input_topic,
+                        "output_topic": output_topic,
+                        "input_transport": input_transport,
+                        "interpolation": interpolation,
+                        "enable_image_view": LaunchConfiguration("remap_enable_image_view"),
+                        "show_input_image": LaunchConfiguration("remap_show_input_image"),
+                        "show_output_image": LaunchConfiguration("remap_show_output_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="white_line_lab_morph_node",
+                name=morph_node_name,
+                output="screen",
+                condition=enabled_condition("enable_morph_node"),
+                parameters=[
+                    {
+                        "input_topic": output_topic,
+                        "green_a_max": 117,
+                        "enable_image_view": LaunchConfiguration("morph_enable_image_view"),
+                        "show_input_image": LaunchConfiguration("morph_show_input_image"),
+                        "show_white_candidate_mask": LaunchConfiguration(
+                            "morph_show_white_candidate_mask"
+                        ),
+                        "show_white_morph_mask": LaunchConfiguration("morph_show_white_morph_mask"),
+                        "show_green_mask": LaunchConfiguration("morph_show_green_mask"),
+                        "show_black_mask": LaunchConfiguration("morph_show_black_mask"),
+                        "show_noise_mask": LaunchConfiguration("morph_show_noise_mask"),
+                        "show_debug_image": LaunchConfiguration("morph_show_debug_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="white_line_skeleton_filter_node",
+                name="white_line_skeleton_filter_node",
+                output="screen",
+                condition=enabled_condition("enable_skeleton_filter"),
+                parameters=[
+                    {
+                        "morph_mask_topic": f"/{morph_node_name}/white_morph_mask",
+                        "green_mask_topic": f"/{morph_node_name}/green_mask",
+                        "black_mask_topic": f"/{morph_node_name}/black_mask",
+                        "noise_mask_topic": f"/{morph_node_name}/noise_mask",
+                        "orientation_window_radius_px": 5,
+                        "min_orientation_neighbors": 6,
+                        "enable_image_view": LaunchConfiguration("skeleton_enable_image_view"),
+                        "show_morph_mask": LaunchConfiguration("skeleton_show_morph_mask"),
+                        "show_green_mask": LaunchConfiguration("skeleton_show_green_mask"),
+                        "show_black_mask": LaunchConfiguration("skeleton_show_black_mask"),
+                        "show_noise_mask": LaunchConfiguration("skeleton_show_noise_mask"),
+                        "show_skeleton_mask": LaunchConfiguration("skeleton_show_skeleton_mask"),
+                        "show_orientation_valid_mask": LaunchConfiguration(
+                            "skeleton_show_orientation_valid_mask"
+                        ),
+                        "show_side_support_mask": LaunchConfiguration(
+                            "skeleton_show_side_support_mask"
+                        ),
+                        "show_width_supported_skeleton_mask": LaunchConfiguration(
+                            "skeleton_show_width_supported_skeleton_mask"
+                        ),
+                        "show_length_filtered_skeleton_mask": LaunchConfiguration(
+                            "skeleton_show_length_filtered_skeleton_mask"
+                        ),
+                        "show_supported_skeleton_mask": LaunchConfiguration(
+                            "skeleton_show_length_filtered_skeleton_mask"
+                        ),
+                        "show_reconstructed_mask": LaunchConfiguration(
+                            "skeleton_show_reconstructed_mask"
+                        ),
+                        "show_white_final_mask": skeleton_show_white_final_mask,
+                        "show_debug_image": LaunchConfiguration("skeleton_show_debug_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="nav2_map_server",
+                executable="map_server",
+                name="map_server",
+                output="screen",
+                condition=enabled_condition("enable_map_server"),
+                parameters=[{"yaml_filename": map_yaml_file}],
+            ),
+            Node(
+                package="nav2_lifecycle_manager",
+                executable="lifecycle_manager",
+                name="lifecycle_manager_localization",
+                output="screen",
+                condition=enabled_condition("enable_lifecycle_manager"),
+                parameters=[{"autostart": True, "node_names": ["map_server"]}],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="yaw_publisher.py",
+                name="yaw_publisher",
+                output="screen",
+                condition=combined_true_condition(
+                    LaunchConfiguration("enable_yaw_publisher"),
+                    use_fake_yaw,
+                ),
+                remappings=[("/robot/yaw", yaw_topic)],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="topdown_pf_localization_node_v2",
+                name="topdown_pf_localization_node_v2",
+                output="screen",
+                condition=enabled_condition("enable_topdown_pf_localization_node_v2"),
+                parameters=[
+                    {
+                        "mask_topic": mask_topic,
+                        "meters_per_pixel": ParameterValue(
+                            LaunchConfiguration("meters_per_pixel"),
+                            value_type=float,
+                        ),
+                        "forward_axis": LaunchConfiguration("forward_axis"),
+                        "left_axis": LaunchConfiguration("left_axis"),
+                        "max_points": ParameterValue(
+                            LaunchConfiguration("max_points"),
+                            value_type=int,
+                        ),
+                        "enable_localization": ParameterValue(
+                            enable_localization,
+                            value_type=bool,
+                        ),
+                        "publish_debug_pointcloud": ParameterValue(
+                            LaunchConfiguration("publish_debug_pointcloud"),
+                            value_type=bool,
+                        ),
+                        "debug_pointcloud_topic": LaunchConfiguration(
+                            "debug_pointcloud_topic"
+                        ),
+                        "num_particles": ParameterValue(
+                            LaunchConfiguration("num_particles"),
+                            value_type=int,
+                        ),
+                        "map_topic": map_topic,
+                        "yaw_topic": yaw_topic,
+                        "sigma_hit": ParameterValue(
+                            LaunchConfiguration("sigma_hit"),
+                            value_type=float,
+                        ),
+                        "noise_xy": ParameterValue(
+                            LaunchConfiguration("noise_xy"),
+                            value_type=float,
+                        ),
+                        "noise_theta": ParameterValue(
+                            LaunchConfiguration("noise_theta"),
+                            value_type=float,
+                        ),
+                        "alpha_fast_rate": ParameterValue(
+                            LaunchConfiguration("alpha_fast_rate"),
+                            value_type=float,
+                        ),
+                        "alpha_slow_rate": ParameterValue(
+                            LaunchConfiguration("alpha_slow_rate"),
+                            value_type=float,
+                        ),
+                        "random_injection_max_ratio": ParameterValue(
+                            LaunchConfiguration("random_injection_max_ratio"),
+                            value_type=float,
+                        ),
+                        "off_map_penalty": ParameterValue(
+                            LaunchConfiguration("off_map_penalty"),
+                            value_type=float,
+                        ),
+                        "occupancy_threshold": ParameterValue(
+                            LaunchConfiguration("occupancy_threshold"),
+                            value_type=int,
+                        ),
+                        "distance_transform_mask_size": ParameterValue(
+                            LaunchConfiguration("distance_transform_mask_size"),
+                            value_type=int,
+                        ),
+                        "init_field_width": ParameterValue(
+                            LaunchConfiguration("init_field_width"),
+                            value_type=float,
+                        ),
+                        "init_field_height": ParameterValue(
+                            LaunchConfiguration("init_field_height"),
+                            value_type=float,
+                        ),
+                        "filter_period_ms": ParameterValue(
+                            LaunchConfiguration("filter_period_ms"),
+                            value_type=int,
+                        ),
+                    }
+                ],
+            ),
+        ]
+    )

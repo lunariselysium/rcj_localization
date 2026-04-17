@@ -16,6 +16,7 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
@@ -282,6 +283,25 @@ target_link_libraries(topdown_pf_localization_node
   OpenMP::OpenMP_CXX
 )
 
+add_executable(topdown_pf_localization_node_v2
+  src/topdown_pf_localization_node_v2.cpp
+  src/particle_filter_v2.cpp
+)
+ament_target_dependencies(topdown_pf_localization_node_v2
+  rclcpp
+  rcl_interfaces
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  tf2_ros
+  cv_bridge
+)
+target_link_libraries(topdown_pf_localization_node_v2
+  ${OpenCV_LIBRARIES}
+  OpenMP::OpenMP_CXX
+)
+
 add_executable(white_line_probability_node src/white_line_probability_node.cpp)
 ament_target_dependencies(white_line_probability_node
   rclcpp
@@ -306,11 +326,12 @@ install(TARGETS
   topdown_mask_points_node
   pf_localization_node
   topdown_pf_localization_node
+  topdown_pf_localization_node_v2
   white_line_probability_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch maps config
+install(DIRECTORY launch maps config docs
   DESTINATION share/${PROJECT_NAME}
 )
 

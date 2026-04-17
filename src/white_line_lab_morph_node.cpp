@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <string>
 
 #if __has_include(<cv_bridge/cv_bridge.hpp>)
@@ -196,6 +197,8 @@ private:
     bool overlay_window_created_ = false;
     int display_max_width_ = 960;
     int display_max_height_ = 720;
+    unsigned long long frame_count_ = 0;
+    long long total_morph_time_us_ = 0;
 
     void loadThresholdsFromParameters() {
         white_enhanced_min_ =
@@ -353,6 +356,7 @@ private:
             return;
         }
 
+        const auto morph_start = std::chrono::steady_clock::now();
         const auto preprocess_params = rcj_loc::vision::white_line::getPreprocessParams(*this);
         const auto preprocessed = rcj_loc::vision::white_line::preprocessFrame(frame, preprocess_params);
 
@@ -410,6 +414,13 @@ private:
         overlay = rcj_loc::vision::debug::createMaskOverlay(overlay, green_mask, cv::Scalar(0, 255, 0));
         overlay = rcj_loc::vision::debug::createMaskOverlay(overlay, noise_mask, cv::Scalar(255, 0, 255));
         overlay = rcj_loc::vision::debug::createMaskOverlay(overlay, white_morph_mask, cv::Scalar(255, 255, 255));
+        const auto morph_end = std::chrono::steady_clock::now();
+        const auto morph_duration_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(morph_end - morph_start).count();
+        ++frame_count_;
+        total_morph_time_us_ += morph_duration_us;
+        const double average_morph_us =
+            static_cast<double>(total_morph_time_us_) / static_cast<double>(frame_count_);
 
         white_candidate_mask_pub_->publish(
             *cv_bridge::CvImage(msg->header, "mono8", raw_white_mask).toImageMsg());
@@ -487,6 +498,14 @@ private:
                 logCurrentThresholds();
             }
         }
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "frame=%llu morph_us=%lld morph_ms=%.3f avg_morph_ms=%.3f",
+            static_cast<unsigned long long>(frame_count_),
+            static_cast<long long>(morph_duration_us),
+            static_cast<double>(morph_duration_us) / 1000.0,
+            average_morph_us / 1000.0);
     }
 };
 

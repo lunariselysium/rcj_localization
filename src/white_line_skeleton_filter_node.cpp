@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -494,6 +495,8 @@ private:
     bool warned_deprecated_white_mask_topic_ = false;
     int display_max_width_ = 960;
     int display_max_height_ = 720;
+    unsigned long long frame_count_ = 0;
+    long long total_skeleton_time_us_ = 0;
 
     bool isParameterOverridden(const char *name) {
         const auto &overrides = this->get_node_parameters_interface()->get_parameter_overrides();
@@ -878,6 +881,7 @@ private:
             return;
         }
 
+        const auto skeleton_start = std::chrono::steady_clock::now();
         const cv::Mat skeleton_mask = skeletonize(morph_mask);
         cv::Mat distance_transform;
         cv::distanceTransform(morph_mask, distance_transform, cv::DIST_L2, 3);
@@ -1011,6 +1015,13 @@ private:
 
         cv::Mat white_final_mask;
         cv::bitwise_and(reconstructed_mask, morph_mask, white_final_mask);
+        const auto skeleton_end = std::chrono::steady_clock::now();
+        const auto skeleton_duration_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(skeleton_end - skeleton_start).count();
+        ++frame_count_;
+        total_skeleton_time_us_ += skeleton_duration_us;
+        const double average_skeleton_us =
+            static_cast<double>(total_skeleton_time_us_) / static_cast<double>(frame_count_);
 
         publishAndDisplay(
             morph_msg->header,
@@ -1025,6 +1036,14 @@ private:
             green_mask,
             black_mask,
             noise_mask);
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "frame=%llu skeleton_us=%lld skeleton_ms=%.3f avg_skeleton_ms=%.3f",
+            static_cast<unsigned long long>(frame_count_),
+            static_cast<long long>(skeleton_duration_us),
+            static_cast<double>(skeleton_duration_us) / 1000.0,
+            average_skeleton_us / 1000.0);
     }
 };
 

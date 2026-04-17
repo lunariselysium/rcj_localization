@@ -313,6 +313,17 @@ target_link_libraries(white_line_probability_node
   white_line_debug_utils
   ${OpenCV_LIBRARIES}
 )
+
+add_executable(black_feature_detector_node src/black_feature_detector_node.cpp)
+ament_target_dependencies(black_feature_detector_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(black_feature_detector_node
+  ${OpenCV_LIBRARIES}
+)
+
 install(TARGETS
   hsv_tuner
   white_line_edge_node
@@ -328,6 +339,7 @@ install(TARGETS
   topdown_pf_localization_node
   topdown_pf_localization_node_v2
   white_line_probability_node
+  black_feature_detector_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

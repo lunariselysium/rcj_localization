@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -337,6 +339,121 @@ cv::Mat createDebugComposite(
     return debug_image;
 }
 
+using SteadyClock = std::chrono::steady_clock;
+using TimePoint = SteadyClock::time_point;
+
+long long elapsedUs(const TimePoint &start, const TimePoint &end) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+}
+
+enum class SkeletonTimingStage : std::size_t {
+    RuntimeSync = 0,
+    CvBridgeConvert,
+    Skeletonize,
+    DistanceTransform,
+    SideSupportScan,
+    WidthRangeEstimate,
+    WidthFilter,
+    LengthFilter,
+    Reconstruct,
+    FinalMask,
+    DebugComposite,
+    PublishOutputs,
+    GuiDisplay,
+    CallbackTotal,
+    Count
+};
+
+constexpr std::array<const char *, static_cast<std::size_t>(SkeletonTimingStage::Count)>
+    kSkeletonTimingLabels = {
+        "runtime_sync",
+        "cv_bridge",
+        "skeletonize",
+        "distance_transform",
+        "side_support_scan",
+        "width_range",
+        "width_filter",
+        "length_filter",
+        "reconstruct",
+        "final_mask",
+        "debug_composite",
+        "publish_outputs",
+        "gui_display",
+        "callback_total",
+};
+
+using SkeletonTimingArray =
+    std::array<long long, static_cast<std::size_t>(SkeletonTimingStage::Count)>;
+
+struct SkeletonFrameTiming {
+    SkeletonTimingArray stage_us{};
+};
+
+void recordStageDuration(
+    SkeletonTimingArray &target,
+    SkeletonTimingStage stage,
+    const TimePoint &start,
+    const TimePoint &end) {
+    target[static_cast<std::size_t>(stage)] = elapsedUs(start, end);
+}
+
+template <typename PublisherT>
+std::size_t subscriptionCount(const std::shared_ptr<PublisherT> &publisher) {
+    return publisher == nullptr ? 0U : publisher->get_subscription_count();
+}
+
+template <typename PublisherT>
+bool hasSubscribers(const std::shared_ptr<PublisherT> &publisher) {
+    return subscriptionCount(publisher) > 0U;
+}
+
+template <typename PublisherT>
+bool publishImageIfSubscribed(
+    const std::shared_ptr<PublisherT> &publisher,
+    const std_msgs::msg::Header &header,
+    const std::string &encoding,
+    const cv::Mat &image) {
+    if (!hasSubscribers(publisher)) {
+        return false;
+    }
+    publisher->publish(*cv_bridge::CvImage(header, encoding, image).toImageMsg());
+    return true;
+}
+
+void appendTimingTable(
+    std::ostringstream &oss,
+    const SkeletonFrameTiming &timing,
+    const SkeletonTimingArray &interval_totals,
+    std::size_t interval_frame_count) {
+    const double callback_average_ms =
+        interval_frame_count > 0
+            ? static_cast<double>(
+                  interval_totals[static_cast<std::size_t>(SkeletonTimingStage::CallbackTotal)]) /
+                  static_cast<double>(interval_frame_count) / 1000.0
+            : 0.0;
+
+    oss << std::left << std::setw(22) << "阶段"
+        << std::right << std::setw(12) << "当前ms"
+        << std::setw(14) << "区间平均ms"
+        << std::setw(12) << "占比%" << '\n';
+
+    for (std::size_t i = 0; i < kSkeletonTimingLabels.size(); ++i) {
+        const double current_ms = static_cast<double>(timing.stage_us[i]) / 1000.0;
+        const double interval_average_ms =
+            interval_frame_count > 0
+                ? static_cast<double>(interval_totals[i]) /
+                      static_cast<double>(interval_frame_count) / 1000.0
+                : 0.0;
+        const double ratio =
+            callback_average_ms > 0.0 ? (interval_average_ms / callback_average_ms) * 100.0 : 0.0;
+
+        oss << std::left << std::setw(22) << kSkeletonTimingLabels[i]
+            << std::right << std::setw(12) << std::fixed << std::setprecision(3) << current_ms
+            << std::setw(14) << std::fixed << std::setprecision(3) << interval_average_ms
+            << std::setw(12) << std::fixed << std::setprecision(1) << ratio << '\n';
+    }
+}
+
 }  // namespace
 
 class WhiteLineSkeletonFilterNode : public rclcpp::Node {
@@ -508,6 +625,7 @@ private:
     unsigned long long timing_interval_start_frame_ = 0;
     long long timing_interval_total_us_ = 0;
     long long timing_interval_max_us_ = 0;
+    SkeletonTimingArray timing_stage_interval_totals_{};
 
     bool isParameterOverridden(const char *name) {
         const auto &overrides = this->get_node_parameters_interface()->get_parameter_overrides();
@@ -640,12 +758,18 @@ private:
         timing_interval_start_frame_ = 0;
         timing_interval_total_us_ = 0;
         timing_interval_max_us_ = 0;
+        timing_stage_interval_totals_.fill(0);
     }
 
-    void maybeLogTimingSummary(long long skeleton_duration_us, unsigned long long current_frame_index) {
+    void maybeLogTimingSummary(
+        const SkeletonFrameTiming &timing,
+        unsigned long long current_frame_index) {
         if (!enable_timing_debug_) {
             return;
         }
+
+        const long long skeleton_duration_us =
+            timing.stage_us[static_cast<std::size_t>(SkeletonTimingStage::CallbackTotal)];
 
         if (timing_frames_in_interval_ == 0U) {
             timing_interval_start_frame_ = current_frame_index;
@@ -654,6 +778,9 @@ private:
         ++timing_frames_in_interval_;
         timing_interval_total_us_ += skeleton_duration_us;
         timing_interval_max_us_ = std::max(timing_interval_max_us_, skeleton_duration_us);
+        for (std::size_t i = 0; i < timing_stage_interval_totals_.size(); ++i) {
+            timing_stage_interval_totals_[i] += timing.stage_us[i];
+        }
 
         if (timing_frames_in_interval_ < static_cast<std::size_t>(timing_summary_interval_)) {
             return;
@@ -664,11 +791,15 @@ private:
             static_cast<double>(timing_frames_in_interval_) / 1000.0;
 
         std::ostringstream oss;
-        oss << "Skeleton profiling summary: frames=" << timing_interval_start_frame_ << "-"
-            << current_frame_index << " (" << timing_frames_in_interval_ << " frames)"
-            << ", last_ms=" << static_cast<double>(skeleton_duration_us) / 1000.0
-            << ", avg_ms=" << avg_ms
-            << ", max_ms=" << static_cast<double>(timing_interval_max_us_) / 1000.0;
+        oss << "\n================ Skeleton Profiling 摘要 ================\n";
+        oss << "帧区间: " << timing_interval_start_frame_ << " - " << current_frame_index
+            << " (" << timing_frames_in_interval_ << " 帧)\n";
+        oss << "当前帧总耗时: " << static_cast<double>(skeleton_duration_us) / 1000.0
+            << " ms, 区间平均: " << avg_ms
+            << " ms, 区间最大: " << static_cast<double>(timing_interval_max_us_) / 1000.0
+            << " ms\n\n";
+        appendTimingTable(oss, timing, timing_stage_interval_totals_, timing_frames_in_interval_);
+        oss << "========================================================";
         RCLCPP_INFO_STREAM(this->get_logger(), oss.str());
 
         resetTimingSummary();
@@ -765,8 +896,74 @@ private:
             std::placeholders::_4));
     }
 
-    void publishAndDisplay(
+    bool publishOutputs(
         const std_msgs::msg::Header &header,
+        const cv::Mat &skeleton_mask,
+        const cv::Mat &orientation_valid_mask,
+        const cv::Mat &side_support_mask,
+        const cv::Mat &width_supported_skeleton_mask,
+        const cv::Mat &length_filtered_skeleton_mask,
+        const cv::Mat &reconstructed_mask,
+        const cv::Mat &white_final_mask,
+        const cv::Mat &debug_image) {
+        bool published_any = false;
+        const bool debug_outputs_enabled = enable_image_view_;
+
+        published_any |=
+            publishImageIfSubscribed(white_final_mask_pub_, header, "mono8", white_final_mask);
+
+        if (hasSubscribers(legacy_white_mask_pub_)) {
+            if (!warned_deprecated_white_mask_topic_) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Topic '~/white_mask' is deprecated. Use '~/white_final_mask' instead.");
+                warned_deprecated_white_mask_topic_ = true;
+            }
+            legacy_white_mask_pub_->publish(
+                *cv_bridge::CvImage(header, "mono8", white_final_mask).toImageMsg());
+            published_any = true;
+        }
+
+        if (!debug_outputs_enabled) {
+            return published_any;
+        }
+
+        published_any |= publishImageIfSubscribed(skeleton_mask_pub_, header, "mono8", skeleton_mask);
+        published_any |= publishImageIfSubscribed(
+            orientation_valid_mask_pub_,
+            header,
+            "mono8",
+            orientation_valid_mask);
+        published_any |=
+            publishImageIfSubscribed(side_support_mask_pub_, header, "mono8", side_support_mask);
+        published_any |= publishImageIfSubscribed(
+            width_supported_skeleton_mask_pub_,
+            header,
+            "mono8",
+            width_supported_skeleton_mask);
+        published_any |= publishImageIfSubscribed(
+            length_filtered_skeleton_mask_pub_,
+            header,
+            "mono8",
+            length_filtered_skeleton_mask);
+        published_any |= publishImageIfSubscribed(
+            legacy_supported_skeleton_mask_pub_,
+            header,
+            "mono8",
+            length_filtered_skeleton_mask);
+        published_any |= publishImageIfSubscribed(
+            reconstructed_mask_pub_,
+            header,
+            "mono8",
+            reconstructed_mask);
+        if (!debug_image.empty()) {
+            published_any |= publishImageIfSubscribed(debug_pub_, header, "bgr8", debug_image);
+        }
+
+        return published_any;
+    }
+
+    bool displayOutputs(
         const cv::Mat &morph_mask,
         const cv::Mat &skeleton_mask,
         const cv::Mat &orientation_valid_mask,
@@ -777,37 +974,8 @@ private:
         const cv::Mat &white_final_mask,
         const cv::Mat &green_mask,
         const cv::Mat &black_mask,
-        const cv::Mat &noise_mask) {
-        const cv::Mat debug_image = createDebugComposite(
-            green_mask,
-            black_mask,
-            white_final_mask);
-
-        skeleton_mask_pub_->publish(*cv_bridge::CvImage(header, "mono8", skeleton_mask).toImageMsg());
-        orientation_valid_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", orientation_valid_mask).toImageMsg());
-        side_support_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", side_support_mask).toImageMsg());
-        width_supported_skeleton_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", width_supported_skeleton_mask).toImageMsg());
-        length_filtered_skeleton_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", length_filtered_skeleton_mask).toImageMsg());
-        legacy_supported_skeleton_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", length_filtered_skeleton_mask).toImageMsg());
-        reconstructed_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", reconstructed_mask).toImageMsg());
-        white_final_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", white_final_mask).toImageMsg());
-        if (!warned_deprecated_white_mask_topic_) {
-            RCLCPP_WARN(
-                this->get_logger(),
-                "Topic '~/white_mask' is deprecated. Use '~/white_final_mask' instead.");
-            warned_deprecated_white_mask_topic_ = true;
-        }
-        legacy_white_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", white_final_mask).toImageMsg());
-        debug_pub_->publish(*cv_bridge::CvImage(header, "bgr8", debug_image).toImageMsg());
-
+        const cv::Mat &noise_mask,
+        const cv::Mat &debug_image) {
         bool displayed_any_window = false;
         if (morph_window_created_) {
             cv::imshow(kMorphWindow, morph_mask);
@@ -888,7 +1056,7 @@ private:
                 display_max_height_);
             displayed_any_window = true;
         }
-        if (debug_window_created_) {
+        if (debug_window_created_ && !debug_image.empty()) {
             cv::imshow(kDebugWindow, debug_image);
             resizeWindowToFitImage(kDebugWindow, debug_image, display_max_width_, display_max_height_);
             displayed_any_window = true;
@@ -896,6 +1064,7 @@ private:
         if (displayed_any_window) {
             cv::waitKey(1);
         }
+        return displayed_any_window;
     }
 
     void maskCallback(
@@ -903,9 +1072,20 @@ private:
         const ImageMsg::ConstSharedPtr &green_msg,
         const ImageMsg::ConstSharedPtr &black_msg,
         const ImageMsg::ConstSharedPtr &noise_msg) {
+        SkeletonFrameTiming timing;
+        const bool timing_enabled = enable_timing_debug_;
+        const auto callback_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+        auto stage_start = timing_enabled ? callback_start : TimePoint{};
         const bool previous_timing_debug = enable_timing_debug_;
         const int previous_timing_summary_interval = timing_summary_interval_;
         syncImageViewState();
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::RuntimeSync,
+                stage_start,
+                SteadyClock::now());
+        }
         if (previous_timing_debug != enable_timing_debug_ ||
             previous_timing_summary_interval != timing_summary_interval_) {
             resetTimingSummary();
@@ -916,10 +1096,18 @@ private:
         cv::Mat black_mask;
         cv::Mat noise_mask;
         try {
+            stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
             morph_mask = cv_bridge::toCvCopy(morph_msg, "mono8")->image;
             green_mask = cv_bridge::toCvCopy(green_msg, "mono8")->image;
             black_mask = cv_bridge::toCvCopy(black_msg, "mono8")->image;
             noise_mask = cv_bridge::toCvCopy(noise_msg, "mono8")->image;
+            if (timing_enabled) {
+                recordStageDuration(
+                    timing.stage_us,
+                    SkeletonTimingStage::CvBridgeConvert,
+                    stage_start,
+                    SteadyClock::now());
+            }
         } catch (const cv_bridge::Exception &e) {
             RCLCPP_WARN_THROTTLE(
                 this->get_logger(),
@@ -940,10 +1128,26 @@ private:
             return;
         }
 
-        const auto skeleton_start = std::chrono::steady_clock::now();
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         const cv::Mat skeleton_mask = skeletonize(morph_mask);
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::Skeletonize,
+                stage_start,
+                SteadyClock::now());
+        }
+
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         cv::Mat distance_transform;
         cv::distanceTransform(morph_mask, distance_transform, cv::DIST_L2, 3);
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::DistanceTransform,
+                stage_start,
+                SteadyClock::now());
+        }
 
         cv::Mat orientation_valid_mask = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
         cv::Mat side_support_mask = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
@@ -951,6 +1155,7 @@ private:
         std::vector<float> supported_widths;
         supported_widths.reserve(static_cast<std::size_t>(cv::countNonZero(skeleton_mask)));
 
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         for (int y = 0; y < skeleton_mask.rows; ++y) {
             for (int x = 0; x < skeleton_mask.cols; ++x) {
                 if (skeleton_mask.at<uchar>(y, x) == 0) {
@@ -1017,9 +1222,17 @@ private:
                 supported_widths.push_back(local_width_px);
             }
         }
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::SideSupportScan,
+                stage_start,
+                SteadyClock::now());
+        }
 
         double width_lower_bound = width_floor_px_;
         double width_upper_bound = width_ceil_px_;
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         if (static_cast<int>(supported_widths.size()) >= min_width_samples_) {
             const double width_median = computeMedian(supported_widths);
             std::vector<float> deviations;
@@ -1035,8 +1248,16 @@ private:
                 width_upper_bound = width_ceil_px_;
             }
         }
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::WidthRangeEstimate,
+                stage_start,
+                SteadyClock::now());
+        }
 
         cv::Mat width_supported_skeleton = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         for (int y = 0; y < side_support_mask.rows; ++y) {
             for (int x = 0; x < side_support_mask.cols; ++x) {
                 if (side_support_mask.at<uchar>(y, x) == 0) {
@@ -1049,11 +1270,27 @@ private:
                 width_supported_skeleton.at<uchar>(y, x) = 255;
             }
         }
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::WidthFilter,
+                stage_start,
+                SteadyClock::now());
+        }
 
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         const cv::Mat length_filtered_skeleton_mask =
             filterSkeletonByLength(width_supported_skeleton, min_skeleton_length_px_);
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::LengthFilter,
+                stage_start,
+                SteadyClock::now());
+        }
 
         cv::Mat reconstructed_mask = cv::Mat::zeros(morph_mask.size(), CV_8UC1);
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         for (int y = 0; y < length_filtered_skeleton_mask.rows; ++y) {
             for (int x = 0; x < length_filtered_skeleton_mask.cols; ++x) {
                 if (length_filtered_skeleton_mask.at<uchar>(y, x) == 0) {
@@ -1071,16 +1308,62 @@ private:
                     cv::FILLED);
             }
         }
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::Reconstruct,
+                stage_start,
+                SteadyClock::now());
+        }
 
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
         cv::Mat white_final_mask;
         cv::bitwise_and(reconstructed_mask, morph_mask, white_final_mask);
-        const auto skeleton_end = std::chrono::steady_clock::now();
-        const auto skeleton_duration_us =
-            std::chrono::duration_cast<std::chrono::microseconds>(skeleton_end - skeleton_start).count();
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::FinalMask,
+                stage_start,
+                SteadyClock::now());
+        }
         const unsigned long long current_frame_index = ++frame_count_;
 
-        publishAndDisplay(
+        const bool debug_image_needed =
+            debug_window_created_ || (enable_image_view_ && hasSubscribers(debug_pub_));
+        cv::Mat debug_image;
+        if (debug_image_needed) {
+            stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+            debug_image = createDebugComposite(green_mask, black_mask, white_final_mask);
+            if (timing_enabled) {
+                recordStageDuration(
+                    timing.stage_us,
+                    SkeletonTimingStage::DebugComposite,
+                    stage_start,
+                    SteadyClock::now());
+            }
+        }
+
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+        const bool published_any = publishOutputs(
             morph_msg->header,
+            skeleton_mask,
+            orientation_valid_mask,
+            side_support_mask,
+            width_supported_skeleton,
+            length_filtered_skeleton_mask,
+            reconstructed_mask,
+            white_final_mask,
+            debug_image);
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::PublishOutputs,
+                stage_start,
+                SteadyClock::now());
+        }
+
+        stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+        const bool displayed_any = displayOutputs(
             morph_mask,
             skeleton_mask,
             orientation_valid_mask,
@@ -1091,9 +1374,27 @@ private:
             white_final_mask,
             green_mask,
             black_mask,
-            noise_mask);
+            noise_mask,
+            debug_image);
+        if (timing_enabled && displayed_any) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::GuiDisplay,
+                stage_start,
+                SteadyClock::now());
+        }
+        if (timing_enabled && !published_any) {
+            timing.stage_us[static_cast<std::size_t>(SkeletonTimingStage::PublishOutputs)] = 0;
+        }
+        if (timing_enabled) {
+            recordStageDuration(
+                timing.stage_us,
+                SkeletonTimingStage::CallbackTotal,
+                callback_start,
+                SteadyClock::now());
+        }
 
-        maybeLogTimingSummary(skeleton_duration_us, current_frame_index);
+        maybeLogTimingSummary(timing, current_frame_index);
     }
 };
 

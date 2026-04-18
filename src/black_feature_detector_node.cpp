@@ -84,6 +84,24 @@ void resizeWindowToFitImage(
     cv::resizeWindow(window_name, fitted_size.width, fitted_size.height);
 }
 
+template <typename PublisherT>
+bool hasSubscribers(const std::shared_ptr<PublisherT> &publisher) {
+    return publisher != nullptr && publisher->get_subscription_count() > 0U;
+}
+
+template <typename PublisherT>
+bool publishImageIfSubscribed(
+    const std::shared_ptr<PublisherT> &publisher,
+    const std_msgs::msg::Header &header,
+    const std::string &encoding,
+    const cv::Mat &image) {
+    if (!hasSubscribers(publisher)) {
+        return false;
+    }
+    publisher->publish(*cv_bridge::CvImage(header, encoding, image).toImageMsg());
+    return true;
+}
+
 double computeMedian(std::vector<float> values) {
     if (values.empty()) {
         return 0.0;
@@ -646,10 +664,16 @@ private:
         const std_msgs::msg::Header &header,
         const cv::Mat &frame,
         const cv::Mat &black_final_mask,
-        const cv::Mat &debug_image) {
-        black_final_mask_pub_->publish(
-            *cv_bridge::CvImage(header, "mono8", black_final_mask).toImageMsg());
-        debug_image_pub_->publish(*cv_bridge::CvImage(header, "bgr8", debug_image).toImageMsg());
+        const cv::Mat &debug_image,
+        bool publish_black_final_mask,
+        bool publish_debug_image) {
+        if (publish_black_final_mask) {
+            black_final_mask_pub_->publish(
+                *cv_bridge::CvImage(header, "mono8", black_final_mask).toImageMsg());
+        }
+        if (publish_debug_image && !debug_image.empty()) {
+            debug_image_pub_->publish(*cv_bridge::CvImage(header, "bgr8", debug_image).toImageMsg());
+        }
 
         bool displayed_any_window = false;
         if (input_window_created_) {
@@ -657,7 +681,7 @@ private:
             resizeWindowToFitImage(kInputWindowName, frame, display_max_width_, display_max_height_);
             displayed_any_window = true;
         }
-        if (debug_window_created_) {
+        if (debug_window_created_ && !debug_image.empty()) {
             cv::imshow(kDebugWindowName, debug_image);
             resizeWindowToFitImage(
                 kDebugWindowName,
@@ -748,17 +772,33 @@ private:
         cv::Mat black_final_mask;
         cv::bitwise_or(dot_mask, arc_mask, black_final_mask);
 
-        const cv::Mat debug_image = buildDebugComposite(
-            frame,
-            black_candidate_mask,
-            clean_mask,
-            dot_mask,
-            arc_mask,
-            black_final_mask,
-            rejected_contours,
-            accepted_arcs);
+        const bool debug_outputs_enabled = enable_image_view_;
+        const bool publish_black_final_mask =
+            debug_outputs_enabled && hasSubscribers(black_final_mask_pub_);
+        const bool publish_debug_image =
+            debug_outputs_enabled && hasSubscribers(debug_image_pub_);
+        const bool debug_image_needed = publish_debug_image || debug_window_created_;
 
-        publishAndDisplay(msg->header, frame, black_final_mask, debug_image);
+        cv::Mat debug_image;
+        if (debug_image_needed) {
+            debug_image = buildDebugComposite(
+                frame,
+                black_candidate_mask,
+                clean_mask,
+                dot_mask,
+                arc_mask,
+                black_final_mask,
+                rejected_contours,
+                accepted_arcs);
+        }
+
+        publishAndDisplay(
+            msg->header,
+            frame,
+            black_final_mask,
+            debug_image,
+            publish_black_final_mask,
+            publish_debug_image);
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;

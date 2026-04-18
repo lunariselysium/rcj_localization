@@ -907,7 +907,7 @@ private:
 
         const bool overlay_needed_for_window = overlay_window_created_;
         const bool overlay_needed_for_publish =
-            publish_debug_image_ && hasSubscribers(debug_pub_);
+            enable_image_view_ && publish_debug_image_ && hasSubscribers(debug_pub_);
         const bool should_build_overlay = overlay_needed_for_window || overlay_needed_for_publish;
 
         cv::Mat overlay;
@@ -935,11 +935,13 @@ private:
 
         bool published_any = false;
         stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
-        published_any |= publishImageIfSubscribed(
-            white_candidate_mask_pub_,
-            msg->header,
-            "mono8",
-            raw_white_mask);
+        if (enable_image_view_) {
+            published_any |= publishImageIfSubscribed(
+                white_candidate_mask_pub_,
+                msg->header,
+                "mono8",
+                raw_white_mask);
+        }
         published_any |= publishImageIfSubscribed(
             white_morph_mask_pub_,
             msg->header,

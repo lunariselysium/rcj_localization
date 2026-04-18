@@ -267,7 +267,7 @@ def generate_launch_description():
         DeclareLaunchArgument("morph_show_black_mask", default_value="false"),  # Show the black mask
         DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),  # Show the noise mask
         DeclareLaunchArgument("morph_show_debug_image", default_value="false"),  # Show the morph debug image
-        DeclareLaunchArgument("morph_enable_timing_debug", default_value="false"),  # Enable morph timing logs
+        DeclareLaunchArgument("morph_enable_timing_debug", default_value="true"),  # Enable morph timing logs
         DeclareLaunchArgument("morph_timing_summary_interval", default_value="10"),  # Morph timing summary frame interval
         DeclareLaunchArgument("skeleton_enable_image_view", default_value="false"),  # Show skeleton debug windows
         DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),  # Show the skeleton input morph mask

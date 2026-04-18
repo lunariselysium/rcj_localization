@@ -202,6 +202,16 @@ target_link_libraries(white_line_hsv_cluster_node
   ${OpenCV_LIBRARIES}
 )
 
+add_executable(white_line_hsv_white_node src/white_line_hsv_white_node.cpp)
+ament_target_dependencies(white_line_hsv_white_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(white_line_hsv_white_node
+  ${OpenCV_LIBRARIES}
+)
+
 add_executable(white_line_lab_cluster_node src/white_line_lab_cluster_node.cpp)
 ament_target_dependencies(white_line_lab_cluster_node
   rclcpp
@@ -331,6 +341,7 @@ install(TARGETS
   white_line_adaptive_threshold_node
   white_line_cluster_node
   white_line_hsv_cluster_node
+  white_line_hsv_white_node
   white_line_lab_cluster_node
   white_line_lab_morph_node
   white_line_skeleton_filter_node

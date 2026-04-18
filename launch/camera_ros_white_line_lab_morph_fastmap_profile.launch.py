@@ -65,6 +65,7 @@ def build_nodes(context):
     camera_info_topic = LaunchConfiguration("camera_info_topic")
     input_topic = LaunchConfiguration("input_topic")
     output_topic = LaunchConfiguration("output_topic")
+    fastmap_file = LaunchConfiguration("fastmap_file")
     input_transport = LaunchConfiguration("input_transport")
     interpolation = LaunchConfiguration("interpolation")
 
@@ -74,6 +75,7 @@ def build_nodes(context):
                 executable="camera_node",
                 name="camera",
                 output="screen",
+                arguments=["--ros-args", "--log-level", "warn"],
                 remappings=[
                     ("~/image_raw", input_topic),
                     ("~/camera_info", camera_info_topic),
@@ -95,8 +97,9 @@ def build_nodes(context):
             Node(
                 package="rcj_localization",
                 executable="fastmap_remap_node",
-                name="camera_fastmap_remap_node",
+                name="white_line_lab_input_remap_node",
                 output="screen",
+                arguments=["--ros-args", "--log-level", "warn"],
                 parameters=[
                     {
                         "fastmap_file": str(selected_fastmap_file),
@@ -105,8 +108,40 @@ def build_nodes(context):
                         "input_transport": input_transport,
                         "interpolation": interpolation,
                         "enable_image_view": LaunchConfiguration("remap_enable_image_view"),
-                        "show_input_image": LaunchConfiguration("remap_show_input_image"),
-                        "show_output_image": LaunchConfiguration("remap_show_output_image"),
+                    }
+                ],
+            ),
+            Node(
+                package="rcj_localization",
+                executable="white_line_lab_morph_node",
+                name="white_line_lab_morph_node",
+                output="screen",
+                arguments=["--ros-args", "--log-level", "info"],
+                parameters=[
+                    {
+                        "input_topic": output_topic,
+                        "green_a_max": 117,
+                        "enable_image_view": LaunchConfiguration("morph_enable_image_view"),
+                        "show_input_image": LaunchConfiguration("morph_show_input_image"),
+                        "show_white_candidate_mask": LaunchConfiguration(
+                            "morph_show_white_candidate_mask"
+                        ),
+                        "show_white_morph_mask": LaunchConfiguration(
+                            "morph_show_white_morph_mask"
+                        ),
+                        "show_green_mask": LaunchConfiguration("morph_show_green_mask"),
+                        "show_black_mask": LaunchConfiguration("morph_show_black_mask"),
+                        "show_noise_mask": LaunchConfiguration("morph_show_noise_mask"),
+                        "show_debug_image": LaunchConfiguration("morph_show_debug_image"),
+                        "publish_debug_image": LaunchConfiguration(
+                            "morph_publish_debug_image"
+                        ),
+                        "enable_timing_debug": LaunchConfiguration(
+                            "morph_enable_timing_debug"
+                        ),
+                        "timing_summary_interval": LaunchConfiguration(
+                            "morph_timing_summary_interval"
+                        ),
                     }
                 ],
             ),
@@ -133,8 +168,17 @@ def generate_launch_description():
             DeclareLaunchArgument("input_transport", default_value="raw"),
             DeclareLaunchArgument("interpolation", default_value="linear"),
             DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
-            DeclareLaunchArgument("remap_show_input_image", default_value="true"),
-            DeclareLaunchArgument("remap_show_output_image", default_value="true"),
+            DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
+            DeclareLaunchArgument("morph_show_input_image", default_value="false"),
+            DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="false"),
+            DeclareLaunchArgument("morph_show_white_morph_mask", default_value="false"),
+            DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
+            DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
+            DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
+            DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
+            DeclareLaunchArgument("morph_publish_debug_image", default_value="false"),
+            DeclareLaunchArgument("morph_enable_timing_debug", default_value="true"),
+            DeclareLaunchArgument("morph_timing_summary_interval", default_value="10"),
             OpaqueFunction(function=build_nodes),
         ]
     )

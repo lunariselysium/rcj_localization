@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -54,9 +54,28 @@ def legacy_arg_used_condition(name):
     )
 
 
-def generate_launch_description():
-    fastmap_default = find_latest_fastmap_file()
-    default_width, default_height = read_fastmap_source_size(fastmap_default)
+def resolve_fastmap_file(context):
+    use_latest_fastmap = (
+        LaunchConfiguration("use_latest_fastmap").perform(context).strip().lower() == "true"
+    )
+    fastmap_file_value = LaunchConfiguration("fastmap_file").perform(context).strip()
+
+    if use_latest_fastmap or not fastmap_file_value:
+        return find_latest_fastmap_file()
+
+    fastmap_path = Path(fastmap_file_value).expanduser()
+    if not fastmap_path.is_absolute():
+        fastmap_path = fastmap_path.resolve()
+    if not fastmap_path.exists():
+        raise FileNotFoundError(f"Fastmap XML file does not exist: {fastmap_path}")
+    return fastmap_path
+
+
+def build_nodes(context):
+    selected_fastmap_file = resolve_fastmap_file(context)
+    default_width, default_height = read_fastmap_source_size(selected_fastmap_file)
+    width_value = LaunchConfiguration("width").perform(context).strip() or str(default_width)
+    height_value = LaunchConfiguration("height").perform(context).strip() or str(default_height)
 
     camera_index = LaunchConfiguration("camera_index")
     role = LaunchConfiguration("role")
@@ -70,7 +89,6 @@ def generate_launch_description():
     camera_info_topic = LaunchConfiguration("camera_info_topic")
     input_topic = LaunchConfiguration("input_topic")
     output_topic = LaunchConfiguration("output_topic")
-    fastmap_file = LaunchConfiguration("fastmap_file")
     input_transport = LaunchConfiguration("input_transport")
     interpolation = LaunchConfiguration("interpolation")
 
@@ -80,58 +98,7 @@ def generate_launch_description():
         "skeleton_show_white_mask",
     )
 
-    launch_arguments = [
-        DeclareLaunchArgument("camera_index", default_value="0"),
-        DeclareLaunchArgument("role", default_value="viewfinder"),
-        DeclareLaunchArgument("format", default_value="RGB888"),
-        DeclareLaunchArgument("width", default_value=str(default_width)),
-        DeclareLaunchArgument("height", default_value=str(default_height)),
-        DeclareLaunchArgument("orientation", default_value="0"),
-        DeclareLaunchArgument("frame_id", default_value="camera"),
-        DeclareLaunchArgument("camera_info_url", default_value=""),
-        DeclareLaunchArgument("use_node_time", default_value="false"),
-        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
-        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
-        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-        DeclareLaunchArgument("fastmap_file", default_value=str(fastmap_default)),
-        DeclareLaunchArgument("input_transport", default_value="raw"),
-        DeclareLaunchArgument("interpolation", default_value="linear"),
-        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("camera_show_published_image", default_value="true"),
-        DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("remap_show_input_image", default_value="false"),
-        DeclareLaunchArgument("remap_show_output_image", default_value="true"),
-        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("morph_show_input_image", default_value="false"),
-        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="true"),
-        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),
-        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
-        DeclareLaunchArgument("skeleton_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="true"),
-        DeclareLaunchArgument(
-            "skeleton_show_length_filtered_skeleton_mask",
-            default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
-        ),
-        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),
-        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
-    ]
-
-    return LaunchDescription(
-        launch_arguments
-        + [
+    return [
             LogInfo(
                 condition=legacy_arg_used_condition("skeleton_show_white_mask"),
                 msg=(
@@ -153,8 +120,8 @@ def generate_launch_description():
                         "camera": ParameterValue(camera_index, value_type=int),
                         "role": role,
                         "format": image_format,
-                        "width": ParameterValue(width, value_type=int),
-                        "height": ParameterValue(height, value_type=int),
+                        "width": ParameterValue(width_value, value_type=int),
+                        "height": ParameterValue(height_value, value_type=int),
                         "orientation": ParameterValue(orientation, value_type=int),
                         "frame_id": frame_id,
                         "camera_info_url": camera_info_url,
@@ -169,7 +136,7 @@ def generate_launch_description():
                 output="screen",
                 parameters=[
                     {
-                        "fastmap_file": fastmap_file,
+                        "fastmap_file": str(selected_fastmap_file),
                         "input_topic": input_topic,
                         "output_topic": output_topic,
                         "input_transport": input_transport,
@@ -244,5 +211,63 @@ def generate_launch_description():
                     }
                 ],
             ),
+    ]
+
+
+def generate_launch_description():
+    launch_arguments = [
+        DeclareLaunchArgument("camera_index", default_value="0"),
+        DeclareLaunchArgument("role", default_value="viewfinder"),
+        DeclareLaunchArgument("format", default_value="RGB888"),
+        DeclareLaunchArgument("width", default_value=""),
+        DeclareLaunchArgument("height", default_value=""),
+        DeclareLaunchArgument("orientation", default_value="0"),
+        DeclareLaunchArgument("frame_id", default_value="camera"),
+        DeclareLaunchArgument("camera_info_url", default_value=""),
+        DeclareLaunchArgument("use_node_time", default_value="false"),
+        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
+        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
+        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
+        DeclareLaunchArgument("use_latest_fastmap", default_value="true"),
+        DeclareLaunchArgument("fastmap_file", default_value=""),
+        DeclareLaunchArgument("input_transport", default_value="raw"),
+        DeclareLaunchArgument("interpolation", default_value="linear"),
+        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("camera_show_published_image", default_value="true"),
+        DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("remap_show_input_image", default_value="false"),
+        DeclareLaunchArgument("remap_show_output_image", default_value="true"),
+        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("morph_show_input_image", default_value="false"),
+        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="true"),
+        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),
+        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
+        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
+        DeclareLaunchArgument("skeleton_enable_image_view", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),
+        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="true"),
+        DeclareLaunchArgument(
+            "skeleton_show_length_filtered_skeleton_mask",
+            default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
+        ),
+        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),
+        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
+    ]
+
+    return LaunchDescription(
+        launch_arguments
+        + [
+            OpaqueFunction(function=build_nodes),
         ]
     )

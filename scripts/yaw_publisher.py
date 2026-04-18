@@ -8,10 +8,15 @@ import time
 class YawPublisherNode(Node):
     def __init__(self):
         super().__init__('yaw_publisher')
+        self.declare_parameter('enable_publish_log', False)
+        self.enable_publish_log = self.get_parameter('enable_publish_log').value
         self.publisher_ = self.create_publisher(Float32, '/robot/yaw', 10)
         self.timer = self.create_timer(0.05, self.publish_yaw) # Publish at 20 Hz
         self.start_time = time.time()
-        self.get_logger().info('Fake Yaw Publisher started. Publishing to /robot/yaw')
+        self.get_logger().info(
+            f'Fake Yaw Publisher started. Publishing to /robot/yaw, '
+            f'enable_publish_log={self.enable_publish_log}'
+        )
 
     def publish_yaw(self):
         # Create a slowly rotating yaw angle for testing
@@ -25,7 +30,8 @@ class YawPublisherNode(Node):
         msg = Float32()
         msg.data = angle_degrees
         self.publisher_.publish(msg)
-        self.get_logger().info(f'Publishing Yaw: {angle_degrees:.2f} degrees')
+        if self.enable_publish_log:
+            self.get_logger().info(f'Publishing Yaw: {angle_degrees:.2f} degrees')
 
 
 def main(args=None):

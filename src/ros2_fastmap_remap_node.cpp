@@ -73,10 +73,15 @@ public:
         declare_parameter("show_output_image", true);
         declare_parameter("display_max_width", 960);
         declare_parameter("display_max_height", 720);
+        declare_parameter("enable_timing_log", true);
+        declare_parameter("timing_log_interval", 30);
 
         loadFastMaps(fastMapPath);
         interpolationMode_ = parseInterpolation(interpolation);
         syncImageViewState();
+        enableTimingLog_ = get_parameter("enable_timing_log").as_bool();
+        timingLogInterval_ =
+            std::max(1, static_cast<int>(get_parameter("timing_log_interval").as_int()));
 
         publisher_ = image_transport::create_publisher(
             this,
@@ -103,6 +108,11 @@ public:
         RCLCPP_INFO(get_logger(), "Input transport: %s", inputTransport.c_str());
         RCLCPP_INFO(get_logger(), "Interpolation: %s", interpolation.c_str());
         RCLCPP_INFO(get_logger(), "Image view enabled: %s", enableImageView_ ? "true" : "false");
+        RCLCPP_INFO(
+            get_logger(),
+            "Timing log enabled: %s, timing_log_interval=%d",
+            enableTimingLog_ ? "true" : "false",
+            timingLogInterval_);
     }
 
     ~FastMapRemapNode() override
@@ -262,13 +272,16 @@ private:
             publisher_.publish(*outputMsg);
             showDebugImages(cvInput->image, remappedImage_);
 
-            RCLCPP_INFO(
-                get_logger(),
-                "frame=%llu remap_us=%lld remap_ms=%.3f avg_remap_ms=%.3f",
-                static_cast<unsigned long long>(frameCount_),
-                static_cast<long long>(remapDurationUs),
-                static_cast<double>(remapDurationUs) / 1000.0,
-                averageRemapUs / 1000.0);
+            if (enableTimingLog_ &&
+                frameCount_ % static_cast<uint64_t>(timingLogInterval_) == 0U) {
+                RCLCPP_INFO(
+                    get_logger(),
+                    "frame=%llu remap_us=%lld remap_ms=%.3f avg_remap_ms=%.3f",
+                    static_cast<unsigned long long>(frameCount_),
+                    static_cast<long long>(remapDurationUs),
+                    static_cast<double>(remapDurationUs) / 1000.0,
+                    averageRemapUs / 1000.0);
+            }
         } catch (const cv_bridge::Exception& e) {
             RCLCPP_ERROR_THROTTLE(
                 get_logger(),
@@ -304,6 +317,8 @@ private:
     bool outputWindowCreated_ = false;
     int displayMaxWidth_ = 960;
     int displayMaxHeight_ = 720;
+    bool enableTimingLog_ = true;
+    int timingLogInterval_ = 30;
     uint64_t frameCount_ = 0;
     int64_t totalRemapTimeUs_ = 0;
 };

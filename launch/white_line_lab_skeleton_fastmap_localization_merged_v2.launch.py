@@ -1,10 +1,22 @@
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch_ros.substitutions import FindPackageShare
+
+
+def find_latest_fastmap_file():
+    config_dir = Path(get_package_share_directory("rcj_localization")) / "config"
+    candidates = sorted(config_dir.glob("undistort_map_*_fast.xml"))
+    if not candidates:
+        candidates = sorted(config_dir.glob("*.xml"))
+    if not candidates:
+        raise FileNotFoundError(f"No fastmap XML file found in {config_dir}")
+    return candidates[-1]
 
 
 def resolve_legacy_bool(current_name, legacy_name):
@@ -44,11 +56,20 @@ def combined_true_condition(*values):
 
 
 def generate_launch_description():
-    package_share = FindPackageShare("rcj_localization")
-    fastmap_default = PathJoinSubstitution(
-        [package_share, "config", "undistort_map_20260414_204537_fast.xml"]
+    package_share = Path(get_package_share_directory("rcj_localization"))
+    fastmap_default = str(find_latest_fastmap_file())
+    selected_fastmap_file = PythonExpression(
+        [
+            "'",
+            LaunchConfiguration("use_latest_fastmap"),
+            "' == 'true' and '",
+            fastmap_default,
+            "' or '",
+            LaunchConfiguration("fastmap_file"),
+            "'",
+        ]
     )
-    map_yaml_default = PathJoinSubstitution([package_share, "maps", "rcj_map.yaml"])
+    map_yaml_default = str(package_share / "maps" / "rcj_map.yaml")
 
     port = LaunchConfiguration("port")
     baudrate = LaunchConfiguration("baudrate")
@@ -81,7 +102,8 @@ def generate_launch_description():
         DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
         DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
         DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-        DeclareLaunchArgument("fastmap_file", default_value=fastmap_default),
+        DeclareLaunchArgument("use_latest_fastmap", default_value="true"),
+        DeclareLaunchArgument("fastmap_file", default_value=""),
         DeclareLaunchArgument("input_transport", default_value="raw"),
         DeclareLaunchArgument("interpolation", default_value="linear"),
         DeclareLaunchArgument("map_yaml_file", default_value=map_yaml_default),
@@ -211,7 +233,7 @@ def generate_launch_description():
                 condition=enabled_condition("enable_fastmap_remap"),
                 parameters=[
                     {
-                        "fastmap_file": fastmap_file,
+                        "fastmap_file": selected_fastmap_file,
                         "input_topic": input_topic,
                         "output_topic": output_topic,
                         "input_transport": input_transport,

@@ -55,8 +55,12 @@ def build_nodes(context):
     )
     selected_fastmap_file = resolve_fastmap_file(context)
     default_width, default_height = read_fastmap_source_size(selected_fastmap_file)
-    width_value = LaunchConfiguration("width").perform(context).strip() or str(default_width)
-    height_value = LaunchConfiguration("height").perform(context).strip() or str(default_height)
+    width_value = int(
+        LaunchConfiguration("width").perform(context).strip() or str(default_width)
+    )
+    height_value = int(
+        LaunchConfiguration("height").perform(context).strip() or str(default_height)
+    )
 
     input_topic = LaunchConfiguration("input_topic")
     camera_info_topic = LaunchConfiguration("camera_info_topic")
@@ -86,6 +90,7 @@ def build_nodes(context):
                             LaunchConfiguration("orientation"),
                             value_type=int,
                         ),
+                        "sensor_mode": LaunchConfiguration("sensor_mode"),
                         "frame_id": LaunchConfiguration("frame_id"),
                         "camera_info_url": LaunchConfiguration("camera_info_url"),
                         "use_node_time": ParameterValue(
@@ -110,22 +115,28 @@ def build_nodes(context):
 
 
 def generate_launch_description():
+    pinned_fastmap_default = str(
+        Path(get_package_share_directory("rcj_localization"))
+        / "config"
+        / "undistort_map_20260414_204537_fast.xml"
+    )
     return LaunchDescription(
         [
             DeclareLaunchArgument("camera_index", default_value="0"),
             DeclareLaunchArgument("role", default_value="viewfinder"),
             DeclareLaunchArgument("format", default_value="RGB888"),
-            DeclareLaunchArgument("width", default_value=""),
-            DeclareLaunchArgument("height", default_value=""),
+            DeclareLaunchArgument("width", default_value="800"),
+            DeclareLaunchArgument("height", default_value="600"),
             DeclareLaunchArgument("orientation", default_value="0"),
+            DeclareLaunchArgument("sensor_mode", default_value="1332:990"),
             DeclareLaunchArgument("frame_id", default_value="camera"),
             DeclareLaunchArgument("camera_info_url", default_value=""),
             DeclareLaunchArgument("use_node_time", default_value="false"),
             DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
             DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
             DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-            DeclareLaunchArgument("use_latest_fastmap", default_value="true"),
-            DeclareLaunchArgument("fastmap_file", default_value=""),
+            DeclareLaunchArgument("use_latest_fastmap", default_value="false"),
+            DeclareLaunchArgument("fastmap_file", default_value=pinned_fastmap_default),
             OpaqueFunction(function=build_nodes),
         ]
     )

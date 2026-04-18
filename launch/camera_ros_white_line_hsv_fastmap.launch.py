@@ -50,8 +50,12 @@ def resolve_fastmap_file(context):
 def build_nodes(context):
     selected_fastmap_file = resolve_fastmap_file(context)
     default_width, default_height = read_fastmap_source_size(selected_fastmap_file)
-    width_value = LaunchConfiguration("width").perform(context).strip() or str(default_width)
-    height_value = LaunchConfiguration("height").perform(context).strip() or str(default_height)
+    width_value = int(
+        LaunchConfiguration("width").perform(context).strip() or str(default_width)
+    )
+    height_value = int(
+        LaunchConfiguration("height").perform(context).strip() or str(default_height)
+    )
 
     camera_index = LaunchConfiguration("camera_index")
     role = LaunchConfiguration("role")
@@ -59,6 +63,7 @@ def build_nodes(context):
     width = LaunchConfiguration("width")
     height = LaunchConfiguration("height")
     orientation = LaunchConfiguration("orientation")
+    sensor_mode = LaunchConfiguration("sensor_mode")
     frame_id = LaunchConfiguration("frame_id")
     camera_info_url = LaunchConfiguration("camera_info_url")
     use_node_time = LaunchConfiguration("use_node_time")
@@ -89,6 +94,7 @@ def build_nodes(context):
                         "width": ParameterValue(width_value, value_type=int),  # Capture width
                         "height": ParameterValue(height_value, value_type=int),  # Capture height
                         "orientation": ParameterValue(orientation, value_type=int),  # Camera rotation angle
+                        "sensor_mode": sensor_mode,  # Camera sensor mode
                         "frame_id": frame_id,  # Image frame id
                         "camera_info_url": camera_info_url,  # Camera calibration URL
                         "use_node_time": ParameterValue(use_node_time, value_type=bool),  # Whether to use node time
@@ -173,14 +179,20 @@ def build_nodes(context):
 
 
 def generate_launch_description():
+    pinned_fastmap_default = str(
+        Path(get_package_share_directory("rcj_localization"))
+        / "config"
+        / "undistort_map_20260414_204537_fast.xml"
+    )
     return LaunchDescription(
         [
             DeclareLaunchArgument("camera_index", default_value="0"),  # Camera index
             DeclareLaunchArgument("role", default_value="viewfinder"),  # camera_ros role
             DeclareLaunchArgument("format", default_value="RGB888"),  # Camera pixel format
-            DeclareLaunchArgument("width", default_value=""),  # Capture width, empty means use selected Fastmap source width
-            DeclareLaunchArgument("height", default_value=""),  # Capture height, empty means use selected Fastmap source height
+            DeclareLaunchArgument("width", default_value="800"),  # Capture width, empty means use selected Fastmap source width
+            DeclareLaunchArgument("height", default_value="600"),  # Capture height, empty means use selected Fastmap source height
             DeclareLaunchArgument("orientation", default_value="0"),  # Camera rotation angle
+            DeclareLaunchArgument("sensor_mode", default_value="1332:990"),  # Camera sensor mode
             DeclareLaunchArgument("frame_id", default_value="camera"),  # Image frame id
             DeclareLaunchArgument("camera_info_url", default_value=""),  # Camera calibration URL
             DeclareLaunchArgument("use_node_time", default_value="false"),  # Whether to use node time
@@ -188,8 +200,8 @@ def generate_launch_description():
             DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),  # Raw image topic
             DeclareLaunchArgument("remap_topic", default_value="/camera/image_remapped"),  # Remapped image topic
             DeclareLaunchArgument("white_mask_topic", default_value="/camera/white_mask"),  # White mask topic
-            DeclareLaunchArgument("use_latest_fastmap", default_value="true"),  # Whether to auto-select the latest Fastmap XML
-            DeclareLaunchArgument("fastmap_file", default_value=""),  # Specific Fastmap XML path when auto-select is disabled
+            DeclareLaunchArgument("use_latest_fastmap", default_value="false"),  # Whether to auto-select the latest Fastmap XML
+            DeclareLaunchArgument("fastmap_file", default_value=pinned_fastmap_default),  # Specific Fastmap XML path when auto-select is disabled
             DeclareLaunchArgument("input_transport", default_value="raw"),  # Remap input transport
             DeclareLaunchArgument("interpolation", default_value="linear"),  # Remap interpolation mode
             DeclareLaunchArgument("remap_enable_image_view", default_value="false"),  # Whether to show remap windows

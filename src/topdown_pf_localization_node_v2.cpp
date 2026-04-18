@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -106,6 +107,11 @@ public:
                     10);
         }
 
+        if (publish_processing_time_) {
+            processing_time_pub_ =
+                this->create_publisher<std_msgs::msg::Float32>(processing_time_topic_, 10);
+        }
+
         if (enable_localization_) {
             pf_ = std::make_unique<rcj_loc::ParticleFilterV2>(filter_config_);
 
@@ -135,7 +141,9 @@ public:
             this->get_logger(),
             "topdown_pf_localization_node_v2 started. mask_topic='%s', meters_per_pixel=%.6f, "
             "forward_axis='%s', left_axis='%s', max_points=%d, num_particles=%d, "
-            "sigma_hit=%.3f, noise_xy=%.3f, noise_theta=%.3f, filter_period_ms=%d",
+            "sigma_hit=%.3f, noise_xy=%.3f, noise_theta=%.3f, filter_period_ms=%d, "
+            "publish_processing_time=%s, processing_time_topic='%s', enable_timing_log=%s, "
+            "timing_log_interval=%d",
             mask_topic_.c_str(),
             meters_per_pixel_,
             forward_axis_name_.c_str(),
@@ -145,7 +153,11 @@ public:
             filter_config_.sigma_hit,
             filter_config_.noise_xy,
             filter_config_.noise_theta,
-            filter_period_ms_);
+            filter_period_ms_,
+            publish_processing_time_ ? "true" : "false",
+            processing_time_topic_.c_str(),
+            enable_timing_log_ ? "true" : "false",
+            timing_log_interval_);
     }
 
 private:
@@ -178,6 +190,10 @@ private:
         this->declare_parameter("init_field_width", 2.0);
         this->declare_parameter("init_field_height", 3.0);
         this->declare_parameter("filter_period_ms", 100);
+        this->declare_parameter("publish_processing_time", true);
+        this->declare_parameter<std::string>("processing_time_topic", "~/processing_time_ms");
+        this->declare_parameter("enable_timing_log", true);
+        this->declare_parameter("timing_log_interval", 30);
     }
 
     void loadAndValidateParameters() {
@@ -209,6 +225,11 @@ private:
         filter_config_.init_field_width = this->get_parameter("init_field_width").as_double();
         filter_config_.init_field_height = this->get_parameter("init_field_height").as_double();
         filter_period_ms_ = static_cast<int>(this->get_parameter("filter_period_ms").as_int());
+        publish_processing_time_ = this->get_parameter("publish_processing_time").as_bool();
+        processing_time_topic_ = this->get_parameter("processing_time_topic").as_string();
+        enable_timing_log_ = this->get_parameter("enable_timing_log").as_bool();
+        timing_log_interval_ =
+            static_cast<int>(this->get_parameter("timing_log_interval").as_int());
 
         validateConfig(
             meters_per_pixel_,
@@ -216,7 +237,9 @@ private:
             left_axis_name_,
             max_points_,
             filter_config_,
-            filter_period_ms_);
+            filter_period_ms_,
+            timing_log_interval_,
+            processing_time_topic_);
 
         forward_axis_ = parseAxisMapping(forward_axis_name_);
         left_axis_ = parseAxisMapping(left_axis_name_);
@@ -228,7 +251,9 @@ private:
         const std::string &left_axis_name,
         int max_points,
         const rcj_loc::ParticleFilterV2Config &config,
-        int filter_period_ms) const {
+        int filter_period_ms,
+        int timing_log_interval,
+        const std::string &processing_time_topic) const {
         if (!std::isfinite(meters_per_pixel) || meters_per_pixel <= 0.0) {
             throw std::runtime_error(
                 "Parameter 'meters_per_pixel' must be a positive finite number.");
@@ -288,6 +313,12 @@ private:
         if (filter_period_ms < 1) {
             throw std::runtime_error("Parameter 'filter_period_ms' must be at least 1.");
         }
+        if (timing_log_interval < 1) {
+            throw std::runtime_error("Parameter 'timing_log_interval' must be at least 1.");
+        }
+        if (processing_time_topic.empty()) {
+            throw std::runtime_error("Parameter 'processing_time_topic' must not be empty.");
+        }
 
         const AxisMapping forward_axis = parseAxisMapping(forward_axis_name);
         const AxisMapping left_axis = parseAxisMapping(left_axis_name);
@@ -308,6 +339,8 @@ private:
         int candidate_max_points = max_points_;
         rcj_loc::ParticleFilterV2Config candidate_filter_config = filter_config_;
         int candidate_filter_period_ms = filter_period_ms_;
+        bool candidate_enable_timing_log = enable_timing_log_;
+        int candidate_timing_log_interval = timing_log_interval_;
 
         bool reinitialize_particles = false;
         bool recreate_timer = false;
@@ -357,10 +390,15 @@ private:
             } else if (name == "filter_period_ms") {
                 candidate_filter_period_ms = static_cast<int>(parameter.as_int());
                 recreate_timer = true;
+            } else if (name == "enable_timing_log") {
+                candidate_enable_timing_log = parameter.as_bool();
+            } else if (name == "timing_log_interval") {
+                candidate_timing_log_interval = static_cast<int>(parameter.as_int());
             } else if (
                 name == "mask_topic" || name == "enable_localization" ||
                 name == "publish_debug_pointcloud" || name == "debug_pointcloud_topic" ||
-                name == "map_topic" || name == "yaw_topic") {
+                name == "map_topic" || name == "yaw_topic" ||
+                name == "publish_processing_time" || name == "processing_time_topic") {
                 result.successful = false;
                 result.reason = "Parameter '" + name + "' requires restarting the node.";
                 return result;
@@ -374,7 +412,9 @@ private:
                 candidate_left_axis_name,
                 candidate_max_points,
                 candidate_filter_config,
-                candidate_filter_period_ms);
+                candidate_filter_period_ms,
+                candidate_timing_log_interval,
+                processing_time_topic_);
         } catch (const std::exception &ex) {
             result.successful = false;
             result.reason = ex.what();
@@ -387,6 +427,8 @@ private:
         max_points_ = candidate_max_points;
         filter_config_ = candidate_filter_config;
         filter_period_ms_ = candidate_filter_period_ms;
+        enable_timing_log_ = candidate_enable_timing_log;
+        timing_log_interval_ = candidate_timing_log_interval;
         forward_axis_ = parseAxisMapping(forward_axis_name_);
         left_axis_ = parseAxisMapping(left_axis_name_);
 
@@ -521,6 +563,8 @@ private:
             return;
         }
 
+        const auto filter_start = std::chrono::steady_clock::now();
+
         std::vector<rcj_loc::Point2D> current_observations;
         {
             std::lock_guard<std::mutex> lock(obs_mutex_);
@@ -535,6 +579,39 @@ private:
 
         publishVisualizationsAndTF(posterior_particles, posterior_best_pose);
         pf_->resample();
+
+        const auto filter_end = std::chrono::steady_clock::now();
+        const auto filter_duration_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(filter_end - filter_start).count();
+        publishAndLogFilterTiming(filter_duration_us);
+    }
+
+    void publishAndLogFilterTiming(std::int64_t filter_duration_us) {
+        ++filter_iteration_count_;
+        total_filter_duration_us_ += filter_duration_us;
+
+        if (publish_processing_time_ && processing_time_pub_) {
+            std_msgs::msg::Float32 timing_msg;
+            timing_msg.data = static_cast<float>(filter_duration_us) / 1000.0f;
+            processing_time_pub_->publish(timing_msg);
+        }
+
+        if (!enable_timing_log_ ||
+            filter_iteration_count_ % static_cast<std::size_t>(timing_log_interval_) != 0U) {
+            return;
+        }
+
+        const double current_ms = static_cast<double>(filter_duration_us) / 1000.0;
+        const double average_ms =
+            static_cast<double>(total_filter_duration_us_) / 1000.0 /
+            static_cast<double>(filter_iteration_count_);
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Topdown PF timing: current=%.3f ms, average=%.3f ms, iterations=%zu",
+            current_ms,
+            average_ms,
+            filter_iteration_count_);
     }
 
     void publishVisualizationsAndTF(
@@ -591,6 +668,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr yaw_sub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr debug_pointcloud_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr processing_time_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr particle_pub_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
@@ -616,6 +694,12 @@ private:
     double current_yaw_rad_ = 0.0;
     bool map_received_ = false;
     int filter_period_ms_ = 100;
+    bool publish_processing_time_ = true;
+    std::string processing_time_topic_;
+    bool enable_timing_log_ = true;
+    int timing_log_interval_ = 30;
+    std::size_t filter_iteration_count_ = 0;
+    std::int64_t total_filter_duration_us_ = 0;
     rcj_loc::ParticleFilterV2Config filter_config_;
 };
 

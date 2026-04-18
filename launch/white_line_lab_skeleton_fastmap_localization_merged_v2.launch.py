@@ -163,6 +163,19 @@ def generate_launch_description():
         DeclareLaunchArgument("init_field_width", default_value="2.0"),  # 初始撒粒子宽度，单位米
         DeclareLaunchArgument("init_field_height", default_value="3.0"),  # 初始撒粒子高度，单位米
         DeclareLaunchArgument("filter_period_ms", default_value="100"),  # 滤波循环周期，单位毫秒
+        DeclareLaunchArgument(
+            "topdown_pf_publish_processing_time", default_value="true"
+        ),  # 是否发布 PF 处理时长
+        DeclareLaunchArgument(
+            "topdown_pf_processing_time_topic",
+            default_value="~/processing_time_ms",
+        ),  # PF 处理时长话题名
+        DeclareLaunchArgument(
+            "topdown_pf_enable_timing_log", default_value="true"
+        ),  # 是否打印 PF 处理时长日志
+        DeclareLaunchArgument(
+            "topdown_pf_timing_log_interval", default_value="30"
+        ),  # PF 处理时长日志输出间隔
         DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
         DeclareLaunchArgument("camera_show_published_image", default_value="true"),
         DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
@@ -419,6 +432,21 @@ def generate_launch_description():
                         ),
                         "filter_period_ms": ParameterValue(
                             LaunchConfiguration("filter_period_ms"),
+                            value_type=int,
+                        ),
+                        "publish_processing_time": ParameterValue(
+                            LaunchConfiguration("topdown_pf_publish_processing_time"),
+                            value_type=bool,
+                        ),
+                        "processing_time_topic": LaunchConfiguration(
+                            "topdown_pf_processing_time_topic"
+                        ),
+                        "enable_timing_log": ParameterValue(
+                            LaunchConfiguration("topdown_pf_enable_timing_log"),
+                            value_type=bool,
+                        ),
+                        "timing_log_interval": ParameterValue(
+                            LaunchConfiguration("topdown_pf_timing_log_interval"),
                             value_type=int,
                         ),
                     }

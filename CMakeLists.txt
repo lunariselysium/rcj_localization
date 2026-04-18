@@ -248,6 +248,18 @@ target_link_libraries(white_line_skeleton_filter_node
   ${OpenCV_LIBRARIES}
 )
 
+add_executable(white_line_dt_ridge_filter_node src/white_line_dt_ridge_filter_node.cpp)
+ament_target_dependencies(white_line_dt_ridge_filter_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+  message_filters
+)
+target_link_libraries(white_line_dt_ridge_filter_node
+  white_line_debug_utils
+  ${OpenCV_LIBRARIES}
+)
+
 add_executable(topdown_mask_points_node src/topdown_mask_points_node.cpp)
 ament_target_dependencies(topdown_mask_points_node
   rclcpp
@@ -345,6 +357,7 @@ install(TARGETS
   white_line_lab_cluster_node
   white_line_lab_morph_node
   white_line_skeleton_filter_node
+  white_line_dt_ridge_filter_node
   topdown_mask_points_node
   pf_localization_node
   topdown_pf_localization_node

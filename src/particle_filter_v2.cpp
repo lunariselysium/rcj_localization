@@ -90,11 +90,16 @@ bool ParticleFilterV2::updateWeights(const std::vector<Point2D> &local_observati
         return false;
     }
 
+    const int particle_count = static_cast<int>(particles_.size());
+    const bool use_parallel =
+        static_cast<std::size_t>(particle_count) * local_observations.size() >= 16384;
+
     std::vector<double> mean_log_likelihoods(particles_.size(), 0.0);
     double max_mean_log_likelihood = -std::numeric_limits<double>::infinity();
     double raw_weight_sum = 0.0;
 
-    for (std::size_t i = 0; i < particles_.size(); ++i) {
+    #pragma omp parallel for if(use_parallel) reduction(max:max_mean_log_likelihood) reduction(+:raw_weight_sum)
+    for (int i = 0; i < particle_count; ++i) {
         auto &particle = particles_[i];
         double log_weight_sum = 0.0;
 
@@ -138,18 +143,22 @@ bool ParticleFilterV2::updateWeights(const std::vector<Point2D> &local_observati
     }
 
     double normalized_weight_sum = 0.0;
-    for (std::size_t i = 0; i < particles_.size(); ++i) {
+    #pragma omp parallel for if(use_parallel) reduction(+:normalized_weight_sum)
+    for (int i = 0; i < particle_count; ++i) {
         particles_[i].weight = safeExp(mean_log_likelihoods[i] - max_mean_log_likelihood);
         normalized_weight_sum += particles_[i].weight;
     }
 
     if (normalized_weight_sum > 0.0) {
-        for (auto &particle : particles_) {
-            particle.weight /= normalized_weight_sum;
+        #pragma omp parallel for if(use_parallel)
+        for (int i = 0; i < particle_count; ++i) {
+            particles_[i].weight /= normalized_weight_sum;
         }
     } else {
-        for (auto &particle : particles_) {
-            particle.weight = 1.0 / static_cast<double>(particles_.size());
+        const double uniform_weight = 1.0 / static_cast<double>(particles_.size());
+        #pragma omp parallel for if(use_parallel)
+        for (int i = 0; i < particle_count; ++i) {
+            particles_[i].weight = uniform_weight;
         }
     }
 

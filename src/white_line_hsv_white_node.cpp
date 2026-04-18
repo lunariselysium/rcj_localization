@@ -1,8 +1,11 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 
 #if __has_include(<cv_bridge/cv_bridge.hpp>)
@@ -25,6 +28,106 @@ constexpr int kByteMax = 255;
 constexpr char kInputWindowName[] = "HSV White Input";
 constexpr char kMaskWindowName[] = "HSV White Mask";
 constexpr char kOverlayWindowName[] = "HSV White Overlay";
+
+using SteadyClock = std::chrono::steady_clock;
+using TimePoint = SteadyClock::time_point;
+
+long long elapsedUs(const TimePoint & start, const TimePoint & end)
+{
+  return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+}
+
+enum class HsvTimingStage : std::size_t
+{
+  RuntimeSync = 0,
+  CvBridgeConvert,
+  HsvConvert,
+  WhiteThreshold,
+  BlackThreshold,
+  GreenThreshold,
+  ContextResolve,
+  PublishOutputs,
+  GuiDisplay,
+  CallbackTotal,
+  Count
+};
+
+constexpr std::array<const char *, static_cast<std::size_t>(HsvTimingStage::Count)>
+  kHsvTimingLabels = {
+    "runtime_sync",
+    "cv_bridge",
+    "hsv_convert",
+    "white_threshold",
+    "black_threshold",
+    "green_threshold",
+    "context_resolve",
+    "publish_outputs",
+    "gui_display",
+    "callback_total",
+  };
+
+using HsvTimingArray =
+  std::array<long long, static_cast<std::size_t>(HsvTimingStage::Count)>;
+
+struct HsvFrameTiming
+{
+  HsvTimingArray stage_us{};
+};
+
+void recordStageDuration(
+  HsvTimingArray & target,
+  HsvTimingStage stage,
+  const TimePoint & start,
+  const TimePoint & end)
+{
+  target[static_cast<std::size_t>(stage)] = elapsedUs(start, end);
+}
+
+void appendTimingTable(
+  std::ostringstream & oss,
+  const HsvFrameTiming & timing,
+  const HsvTimingArray & interval_totals,
+  std::size_t interval_frame_count)
+{
+  const double callback_average_ms =
+    interval_frame_count > 0
+      ? static_cast<double>(
+      interval_totals[static_cast<std::size_t>(HsvTimingStage::CallbackTotal)]) /
+      static_cast<double>(interval_frame_count) / 1000.0
+      : 0.0;
+
+  oss << std::left << std::setw(20) << "stage"
+      << std::right << std::setw(12) << "current ms"
+      << std::setw(14) << "avg ms"
+      << std::setw(12) << "ratio %" << '\n';
+
+  for (std::size_t i = 0; i < kHsvTimingLabels.size(); ++i) {
+    const double current_ms = static_cast<double>(timing.stage_us[i]) / 1000.0;
+    const double interval_average_ms =
+      interval_frame_count > 0
+        ? static_cast<double>(interval_totals[i]) / static_cast<double>(interval_frame_count) /
+        1000.0
+        : 0.0;
+    const double ratio =
+      callback_average_ms > 0.0 ? (interval_average_ms / callback_average_ms) * 100.0 : 0.0;
+
+    oss << std::left << std::setw(20) << kHsvTimingLabels[i]
+        << std::right << std::setw(12) << std::fixed << std::setprecision(3) << current_ms
+        << std::setw(14) << std::fixed << std::setprecision(3) << interval_average_ms
+        << std::setw(12) << std::fixed << std::setprecision(1) << ratio << '\n';
+  }
+}
+
+cv::Mat takeFromRemaining(const cv::Mat & candidate, cv::Mat & remaining)
+{
+  cv::Mat assigned;
+  cv::bitwise_and(candidate, remaining, assigned);
+
+  cv::Mat assigned_inv;
+  cv::bitwise_not(assigned, assigned_inv);
+  cv::bitwise_and(remaining, assigned_inv, remaining);
+  return assigned;
+}
 
 int clampHue(int value)
 {
@@ -78,6 +181,11 @@ public:
     declare_parameter("white_h_max", kHueMax);
     declare_parameter("white_s_max", 60);
     declare_parameter("white_v_min", 170);
+    declare_parameter("black_v_max", 70);
+    declare_parameter("green_h_min", 35);
+    declare_parameter("green_h_max", 95);
+    declare_parameter("green_s_min", 40);
+    declare_parameter("green_v_min", 40);
     declare_parameter("enable_timing_log", true);
     declare_parameter("timing_log_interval", 30);
     declare_parameter("enable_image_view", false);
@@ -97,17 +205,26 @@ public:
       std::bind(&WhiteLineHsvWhiteNode::imageCallback, this, std::placeholders::_1));
 
     white_mask_pub_ = create_publisher<sensor_msgs::msg::Image>("~/white_mask", 10);
+    green_mask_pub_ = create_publisher<sensor_msgs::msg::Image>("~/green_mask", 10);
+    black_mask_pub_ = create_publisher<sensor_msgs::msg::Image>("~/black_mask", 10);
+    noise_mask_pub_ = create_publisher<sensor_msgs::msg::Image>("~/noise_mask", 10);
 
     RCLCPP_INFO(
       get_logger(),
       "white_line_hsv_white_node started. input_topic=%s, white_h_min=%d, white_h_max=%d, "
-      "white_s_max=%d, white_v_min=%d, enable_timing_log=%s, timing_log_interval=%d, "
+      "white_s_max=%d, white_v_min=%d, black_v_max=%d, green_h_min=%d, green_h_max=%d, "
+      "green_s_min=%d, green_v_min=%d, enable_timing_log=%s, timing_log_interval=%d, "
       "enable_image_view=%s",
       input_topic.c_str(),
       white_h_min_,
       white_h_max_,
       white_s_max_,
       white_v_min_,
+      black_v_max_,
+      green_h_min_,
+      green_h_max_,
+      green_s_min_,
+      green_v_min_,
       enable_timing_log_ ? "true" : "false",
       timing_log_interval_,
       enable_image_view_ ? "true" : "false");
@@ -125,6 +242,11 @@ private:
     white_h_max_ = clampHue(static_cast<int>(get_parameter("white_h_max").as_int()));
     white_s_max_ = clampByte(static_cast<int>(get_parameter("white_s_max").as_int()));
     white_v_min_ = clampByte(static_cast<int>(get_parameter("white_v_min").as_int()));
+    black_v_max_ = clampByte(static_cast<int>(get_parameter("black_v_max").as_int()));
+    green_h_min_ = clampHue(static_cast<int>(get_parameter("green_h_min").as_int()));
+    green_h_max_ = clampHue(static_cast<int>(get_parameter("green_h_max").as_int()));
+    green_s_min_ = clampByte(static_cast<int>(get_parameter("green_s_min").as_int()));
+    green_v_min_ = clampByte(static_cast<int>(get_parameter("green_v_min").as_int()));
     enable_timing_log_ = get_parameter("enable_timing_log").as_bool();
     timing_log_interval_ =
       std::max(1, static_cast<int>(get_parameter("timing_log_interval").as_int()));
@@ -205,39 +327,90 @@ private:
     }
   }
 
-  void logTiming(std::int64_t frame_duration_us)
+  void resetTimingSummary()
+  {
+    timing_frames_in_interval_ = 0;
+    timing_interval_total_us_ = 0;
+    timing_interval_max_us_ = 0;
+    timing_stage_interval_totals_.fill(0);
+  }
+
+  void logTimingSummary(const HsvFrameTiming & timing)
   {
     if (!enable_timing_log_) {
       return;
     }
 
-    ++frame_count_;
-    total_duration_us_ += frame_duration_us;
+    const long long callback_duration_us =
+      timing.stage_us[static_cast<std::size_t>(HsvTimingStage::CallbackTotal)];
 
-    if (frame_count_ % static_cast<std::size_t>(timing_log_interval_) != 0U) {
+    ++timing_frames_in_interval_;
+    timing_interval_total_us_ += callback_duration_us;
+    timing_interval_max_us_ =
+      std::max(timing_interval_max_us_, static_cast<std::int64_t>(callback_duration_us));
+    for (std::size_t i = 0; i < timing_stage_interval_totals_.size(); ++i) {
+      timing_stage_interval_totals_[i] += timing.stage_us[i];
+    }
+
+    if (timing_frames_in_interval_ < static_cast<std::size_t>(timing_log_interval_)) {
       return;
     }
 
-    const double current_ms = static_cast<double>(frame_duration_us) / 1000.0;
-    const double average_ms =
-      static_cast<double>(total_duration_us_) / 1000.0 / static_cast<double>(frame_count_);
+    const double avg_ms =
+      static_cast<double>(timing_interval_total_us_) /
+      static_cast<double>(timing_frames_in_interval_) / 1000.0;
 
-    RCLCPP_INFO(
-      get_logger(),
-      "HSV white extraction timing: current=%.3f ms, average=%.3f ms, frames=%zu",
-      current_ms,
-      average_ms,
-      frame_count_);
+    std::ostringstream oss;
+    oss << "\n================ HSV White Timing Summary ================\n";
+    oss << "frames: " << timing_frames_in_interval_
+        << ", current total: " << static_cast<double>(callback_duration_us) / 1000.0
+        << " ms, interval avg: " << avg_ms
+        << " ms, interval max: " << static_cast<double>(timing_interval_max_us_) / 1000.0
+        << " ms\n\n";
+    appendTimingTable(oss, timing, timing_stage_interval_totals_, timing_frames_in_interval_);
+    oss << "==========================================================";
+    RCLCPP_INFO_STREAM(get_logger(), oss.str());
+
+    resetTimingSummary();
   }
 
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
   {
-    const auto start = std::chrono::steady_clock::now();
+    const bool previous_timing_log = enable_timing_log_;
+    const int previous_timing_log_interval = timing_log_interval_;
+    loadParameters();
     syncImageViewState();
+
+    if (
+      previous_timing_log != enable_timing_log_ ||
+      previous_timing_log_interval != timing_log_interval_)
+    {
+      resetTimingSummary();
+    }
+
+    HsvFrameTiming timing;
+    const bool timing_enabled = enable_timing_log_;
+    const auto callback_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+    auto stage_start = timing_enabled ? callback_start : TimePoint{};
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::RuntimeSync,
+        stage_start,
+        SteadyClock::now());
+    }
 
     cv::Mat frame;
     try {
+      stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
       frame = cv_bridge::toCvCopy(msg, "bgr8")->image;
+      if (timing_enabled) {
+        recordStageDuration(
+          timing.stage_us,
+          HsvTimingStage::CvBridgeConvert,
+          stage_start,
+          SteadyClock::now());
+      }
     } catch (const cv_bridge::Exception & e) {
       RCLCPP_WARN_THROTTLE(
         get_logger(),
@@ -249,15 +422,24 @@ private:
     }
 
     cv::Mat hsv_image;
+    stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
     cv::cvtColor(frame, hsv_image, cv::COLOR_BGR2HSV);
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::HsvConvert,
+        stage_start,
+        SteadyClock::now());
+    }
 
-    cv::Mat white_mask;
+    cv::Mat white_candidate;
+    stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
     if (white_h_min_ <= white_h_max_) {
       cv::inRange(
         hsv_image,
         cv::Scalar(white_h_min_, 0, white_v_min_),
         cv::Scalar(white_h_max_, white_s_max_, kByteMax),
-        white_mask);
+        white_candidate);
     } else {
       cv::Mat low_range_mask;
       cv::Mat high_range_mask;
@@ -271,27 +453,127 @@ private:
         cv::Scalar(white_h_min_, 0, white_v_min_),
         cv::Scalar(kHueMax, white_s_max_, kByteMax),
         high_range_mask);
-      cv::bitwise_or(low_range_mask, high_range_mask, white_mask);
+      cv::bitwise_or(low_range_mask, high_range_mask, white_candidate);
+    }
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::WhiteThreshold,
+        stage_start,
+        SteadyClock::now());
     }
 
+    cv::Mat black_candidate;
+    stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+    cv::inRange(
+      hsv_image,
+      cv::Scalar(0, 0, 0),
+      cv::Scalar(kHueMax, kByteMax, black_v_max_),
+      black_candidate);
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::BlackThreshold,
+        stage_start,
+        SteadyClock::now());
+    }
+
+    cv::Mat green_candidate = cv::Mat::zeros(frame.size(), CV_8UC1);
+    stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+    if (green_h_min_ <= green_h_max_) {
+      cv::inRange(
+        hsv_image,
+        cv::Scalar(green_h_min_, green_s_min_, green_v_min_),
+        cv::Scalar(green_h_max_, kByteMax, kByteMax),
+        green_candidate);
+    } else {
+      cv::Mat low_range_mask;
+      cv::Mat high_range_mask;
+      cv::inRange(
+        hsv_image,
+        cv::Scalar(0, green_s_min_, green_v_min_),
+        cv::Scalar(green_h_max_, kByteMax, kByteMax),
+        low_range_mask);
+      cv::inRange(
+        hsv_image,
+        cv::Scalar(green_h_min_, green_s_min_, green_v_min_),
+        cv::Scalar(kHueMax, kByteMax, kByteMax),
+        high_range_mask);
+      cv::bitwise_or(low_range_mask, high_range_mask, green_candidate);
+    }
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::GreenThreshold,
+        stage_start,
+        SteadyClock::now());
+    }
+
+    stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+    cv::Mat remaining(frame.size(), CV_8UC1, cv::Scalar(255));
+    const cv::Mat green_mask = takeFromRemaining(green_candidate, remaining);
+    const cv::Mat white_mask = takeFromRemaining(white_candidate, remaining);
+    const cv::Mat black_mask = takeFromRemaining(black_candidate, remaining);
+    const cv::Mat noise_mask = remaining.clone();
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::ContextResolve,
+        stage_start,
+        SteadyClock::now());
+    }
+
+    stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
     white_mask_pub_->publish(*cv_bridge::CvImage(msg->header, "mono8", white_mask).toImageMsg());
-    if (input_window_created_ || mask_window_created_ || overlay_window_created_) {
-      showDebugImages(frame, white_mask);
+    green_mask_pub_->publish(*cv_bridge::CvImage(msg->header, "mono8", green_mask).toImageMsg());
+    black_mask_pub_->publish(*cv_bridge::CvImage(msg->header, "mono8", black_mask).toImageMsg());
+    noise_mask_pub_->publish(*cv_bridge::CvImage(msg->header, "mono8", noise_mask).toImageMsg());
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::PublishOutputs,
+        stage_start,
+        SteadyClock::now());
     }
 
-    const auto end = std::chrono::steady_clock::now();
-    const auto duration_us =
-      std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    logTiming(duration_us);
+    const bool gui_enabled = input_window_created_ || mask_window_created_ || overlay_window_created_;
+    if (gui_enabled) {
+      stage_start = timing_enabled ? SteadyClock::now() : TimePoint{};
+      showDebugImages(frame, white_mask);
+      if (timing_enabled) {
+        recordStageDuration(
+          timing.stage_us,
+          HsvTimingStage::GuiDisplay,
+          stage_start,
+          SteadyClock::now());
+      }
+    }
+
+    if (timing_enabled) {
+      recordStageDuration(
+        timing.stage_us,
+        HsvTimingStage::CallbackTotal,
+        callback_start,
+        SteadyClock::now());
+      logTimingSummary(timing);
+    }
   }
 
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr white_mask_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr green_mask_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr black_mask_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr noise_mask_pub_;
 
   int white_h_min_{0};
   int white_h_max_{kHueMax};
   int white_s_max_{60};
   int white_v_min_{170};
+  int black_v_max_{70};
+  int green_h_min_{35};
+  int green_h_max_{95};
+  int green_s_min_{40};
+  int green_v_min_{40};
   bool enable_timing_log_{true};
   int timing_log_interval_{30};
   bool enable_image_view_{false};
@@ -304,8 +586,10 @@ private:
   bool overlay_window_created_{false};
   int display_max_width_{960};
   int display_max_height_{720};
-  std::size_t frame_count_{0};
-  std::int64_t total_duration_us_{0};
+  std::size_t timing_frames_in_interval_{0};
+  std::int64_t timing_interval_total_us_{0};
+  std::int64_t timing_interval_max_us_{0};
+  HsvTimingArray timing_stage_interval_totals_{};
 };
 
 int main(int argc, char ** argv)

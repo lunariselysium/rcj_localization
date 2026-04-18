@@ -74,50 +74,54 @@ def generate_launch_description():
     )
 
     launch_arguments = [
-        DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),
-        DeclareLaunchArgument("baudrate", default_value="115200"),
-        DeclareLaunchArgument("timeout_sec", default_value="1.0"),
-        DeclareLaunchArgument("frame_id", default_value="camera"),
-        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
-        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
-        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-        DeclareLaunchArgument("use_latest_fastmap", default_value="true"),
-        DeclareLaunchArgument("fastmap_file", default_value=""),
-        DeclareLaunchArgument("input_transport", default_value="raw"),
-        DeclareLaunchArgument("interpolation", default_value="linear"),
-        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("camera_show_published_image", default_value="true"),
-        DeclareLaunchArgument("remap_enable_image_view", default_value="true"),
-        DeclareLaunchArgument("remap_show_input_image", default_value="false"),
-        DeclareLaunchArgument("remap_show_output_image", default_value="true"),
+        DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),  # Serial port for the camera publisher
+        DeclareLaunchArgument("baudrate", default_value="115200"),  # Serial baudrate
+        DeclareLaunchArgument("timeout_sec", default_value="1.0"),  # Serial read timeout in seconds
+        DeclareLaunchArgument("frame_id", default_value="camera"),  # Frame id for published images
+        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),  # Camera info topic
+        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),  # Raw input image topic
+        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),  # Remapped output image topic
+        DeclareLaunchArgument("use_latest_fastmap", default_value="true"),  # Auto-select the newest fastmap file
+        DeclareLaunchArgument("fastmap_file", default_value=""),  # Fastmap XML path when auto-select is off
+        DeclareLaunchArgument("input_transport", default_value="raw"),  # Input transport for the remap node
+        DeclareLaunchArgument("interpolation", default_value="linear"),  # Remap interpolation mode
+        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),  # Show camera debug window
+        DeclareLaunchArgument("camera_show_published_image", default_value="true"),  # Show the camera output image
+        DeclareLaunchArgument("remap_enable_image_view", default_value="true"),  # Show remap debug windows
+        DeclareLaunchArgument("remap_show_input_image", default_value="false"),  # Show the remap input image
+        DeclareLaunchArgument("remap_show_output_image", default_value="true"),  # Show the remap output image
 
-        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("morph_show_input_image", default_value="false"),
-        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="true"),
-        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),
-        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
+        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),  # Show morph debug windows
+        DeclareLaunchArgument("morph_show_input_image", default_value="false"),  # Show the morph input image
+        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="true"),  # Show the white candidate mask
+        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),  # Show the morph output mask
+        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),  # Show the green mask
+        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),  # Show the black mask
+        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),  # Show the noise mask
+        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),  # Show the morph debug image
+        DeclareLaunchArgument("morph_enable_timing_debug", default_value="false"),  # Enable morph timing logs
+        DeclareLaunchArgument("morph_timing_summary_interval", default_value="10"),  # Morph timing summary frame interval
 
-        DeclareLaunchArgument("skeleton_enable_image_view", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="true"),
+        DeclareLaunchArgument("skeleton_enable_image_view", default_value="true"),  # Show skeleton debug windows
+        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),  # Show the skeleton input morph mask
+        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),  # Show the skeleton green mask
+        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),  # Show the skeleton black mask
+        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),  # Show the skeleton noise mask
+        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="false"),  # Show the raw skeleton mask
+        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),  # Show the orientation-valid mask
+        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),  # Show the side-support mask
+        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),  # Show the width-filtered skeleton
+        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="true"),  # Deprecated alias for the length-filtered skeleton view
         DeclareLaunchArgument(
             "skeleton_show_length_filtered_skeleton_mask",
             default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
-        ),
-        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),
-        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
+        ),  # Show the length-filtered skeleton
+        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="true"),  # Show the reconstructed white mask
+        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),  # Show the final white mask
+        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),  # Deprecated alias for the final white mask view
+        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),  # Show the skeleton debug mosaic
+        DeclareLaunchArgument("skeleton_enable_timing_debug", default_value="false"),  # Enable skeleton timing logs
+        DeclareLaunchArgument("skeleton_timing_summary_interval", default_value="10"),  # Skeleton timing summary frame interval
     ]
 
     return LaunchDescription(
@@ -185,6 +189,10 @@ def generate_launch_description():
                         "show_black_mask": LaunchConfiguration("morph_show_black_mask"),
                         "show_noise_mask": LaunchConfiguration("morph_show_noise_mask"),
                         "show_debug_image": LaunchConfiguration("morph_show_debug_image"),
+                        "enable_timing_debug": LaunchConfiguration("morph_enable_timing_debug"),
+                        "timing_summary_interval": LaunchConfiguration(
+                            "morph_timing_summary_interval"
+                        ),
                     }
                 ],
             ),
@@ -227,6 +235,12 @@ def generate_launch_description():
                         ),
                         "show_white_final_mask": skeleton_show_white_final_mask,
                         "show_debug_image": LaunchConfiguration("skeleton_show_debug_image"),
+                        "enable_timing_debug": LaunchConfiguration(
+                            "skeleton_enable_timing_debug"
+                        ),
+                        "timing_summary_interval": LaunchConfiguration(
+                            "skeleton_timing_summary_interval"
+                        ),
                     }
                 ],
             ),

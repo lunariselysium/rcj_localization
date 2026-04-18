@@ -1,8 +1,12 @@
 <launch>
   <node pkg="rcj_localization" exec="image_publisher.py" name="openmv_camera" output="screen">
+    <!-- Serial port for the camera publisher -->
     <param name="port" value="/dev/ttyACM0" />
+    <!-- Serial baudrate -->
     <param name="baudrate" value="115200" />
+    <!-- Serial read timeout in seconds -->
     <param name="timeout_sec" value="1.0" />
+    <!-- Frame id for published images -->
     <param name="frame_id" value="camera" />
   </node>
 </launch>

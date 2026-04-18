@@ -95,118 +95,122 @@ def generate_launch_description():
     )
 
     launch_arguments = [
-        DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),
-        DeclareLaunchArgument("baudrate", default_value="115200"),
-        DeclareLaunchArgument("timeout_sec", default_value="1.0"),
-        DeclareLaunchArgument("frame_id", default_value="camera"),
-        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
-        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
-        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-        DeclareLaunchArgument("use_latest_fastmap", default_value="true"),
-        DeclareLaunchArgument("fastmap_file", default_value=""),
-        DeclareLaunchArgument("input_transport", default_value="raw"),
-        DeclareLaunchArgument("interpolation", default_value="linear"),
-        DeclareLaunchArgument("map_yaml_file", default_value=map_yaml_default),
-        DeclareLaunchArgument("use_fake_yaw", default_value="true"),
-        DeclareLaunchArgument("yaw_topic", default_value="/robot/yaw"),  # 航向角输入话题
-        DeclareLaunchArgument("map_topic", default_value="/map"),  # 占用栅格地图话题
+        DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),  # Serial port for the camera publisher
+        DeclareLaunchArgument("baudrate", default_value="115200"),  # Serial baudrate
+        DeclareLaunchArgument("timeout_sec", default_value="1.0"),  # Serial read timeout in seconds
+        DeclareLaunchArgument("frame_id", default_value="camera"),  # Frame id for published images
+        DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),  # Camera info topic
+        DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),  # Raw input image topic
+        DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),  # Remapped output image topic
+        DeclareLaunchArgument("use_latest_fastmap", default_value="true"),  # Auto-select the newest fastmap file
+        DeclareLaunchArgument("fastmap_file", default_value=""),  # Fastmap XML path when auto-select is off
+        DeclareLaunchArgument("input_transport", default_value="raw"),  # Input transport for the remap node
+        DeclareLaunchArgument("interpolation", default_value="linear"),  # Remap interpolation mode
+        DeclareLaunchArgument("map_yaml_file", default_value=map_yaml_default),  # Map YAML file path
+        DeclareLaunchArgument("use_fake_yaw", default_value="true"),  # Publish fake yaw instead of subscribing
+        DeclareLaunchArgument("yaw_topic", default_value="/robot/yaw"),  # Yaw topic
+        DeclareLaunchArgument("map_topic", default_value="/map"),  # Occupancy map topic
         DeclareLaunchArgument(
             "mask_topic",
             default_value="/white_line_skeleton_filter_node/white_final_mask",
-        ),  # PF 使用的顶视白线 mask 话题
-        DeclareLaunchArgument("enable_localization", default_value="true"),  # 是否启用 PF 定位
-        DeclareLaunchArgument("publish_debug_pointcloud", default_value="true"),  # 是否发布观测点云调试话题
+        ),  # Topdown white mask topic for PF input
+        DeclareLaunchArgument("enable_localization", default_value="true"),  # Enable the localization stack
+        DeclareLaunchArgument("publish_debug_pointcloud", default_value="true"),  # Publish localization debug pointcloud
         DeclareLaunchArgument(
             "debug_pointcloud_topic",
             default_value="/field_line_observations_debug",
-        ),  # 观测点云调试话题名
-        DeclareLaunchArgument("enable_openmv_camera", default_value="true"),
-        DeclareLaunchArgument("enable_fastmap_remap", default_value="true"),
-        DeclareLaunchArgument("enable_morph_node", default_value="true"),
-        DeclareLaunchArgument("enable_skeleton_filter", default_value="true"),
+        ),  # Debug pointcloud topic name
+        DeclareLaunchArgument("enable_openmv_camera", default_value="true"),  # Start the OpenMV image publisher
+        DeclareLaunchArgument("enable_fastmap_remap", default_value="true"),  # Start the fastmap remap node
+        DeclareLaunchArgument("enable_morph_node", default_value="true"),  # Start the LAB morph node
+        DeclareLaunchArgument("enable_skeleton_filter", default_value="true"),  # Start the skeleton filter node
         DeclareLaunchArgument(
             "enable_map_server",
             default_value=LaunchConfiguration("enable_localization"),
-        ),
+        ),  # Start the map server when localization is enabled
         DeclareLaunchArgument(
             "enable_lifecycle_manager",
             default_value=LaunchConfiguration("enable_map_server"),
-        ),
+        ),  # Start the lifecycle manager for the map server
         DeclareLaunchArgument(
             "enable_yaw_publisher",
             default_value=LaunchConfiguration("enable_localization"),
-        ),
+        ),  # Start the fake yaw publisher when localization is enabled
         DeclareLaunchArgument(
             "enable_topdown_pf_localization_node_v2",
             default_value="true",
-        ),  # 是否启动 V2 顶视 PF 节点
-        DeclareLaunchArgument("meters_per_pixel", default_value="0.0025"),  # 顶视图每像素对应米数
-        DeclareLaunchArgument("forward_axis", default_value="v+"),  # 图像前向轴映射，u+/u-/v+/v-
-        DeclareLaunchArgument("left_axis", default_value="u-"),  # 图像左向轴映射，u+/u-/v+/v-
-        DeclareLaunchArgument("max_points", default_value="5000"),  # 每帧最多采样多少个白线点
-        DeclareLaunchArgument("num_particles", default_value="1000"),  # 粒子数量
-        DeclareLaunchArgument("sigma_hit", default_value="0.10"),  # 观测高斯宽度，单位米
-        DeclareLaunchArgument("noise_xy", default_value="0.05"),  # 位置随机游走标准差，单位米
-        DeclareLaunchArgument("noise_theta", default_value="0.10"),  # 航向随机游走标准差，单位弧度
-        DeclareLaunchArgument("alpha_fast_rate", default_value="0.1"),  # 快速平均权重更新率
-        DeclareLaunchArgument("alpha_slow_rate", default_value="0.001"),  # 慢速平均权重更新率
+        ),  # Start the V2 topdown particle filter node
+        DeclareLaunchArgument("meters_per_pixel", default_value="0.0025"),  # Meters per topdown mask pixel
+        DeclareLaunchArgument("forward_axis", default_value="v+"),  # Forward axis mapping
+        DeclareLaunchArgument("left_axis", default_value="u-"),  # Left axis mapping
+        DeclareLaunchArgument("max_points", default_value="5000"),  # Max sampled mask points
+        DeclareLaunchArgument("num_particles", default_value="1000"),  # Particle filter particle count
+        DeclareLaunchArgument("sigma_hit", default_value="0.10"),  # Measurement sigma in meters
+        DeclareLaunchArgument("noise_xy", default_value="0.05"),  # Position noise std in meters
+        DeclareLaunchArgument("noise_theta", default_value="0.10"),  # Heading noise std in radians
+        DeclareLaunchArgument("alpha_fast_rate", default_value="0.1"),  # Fast average update rate
+        DeclareLaunchArgument("alpha_slow_rate", default_value="0.001"),  # Slow average update rate
         DeclareLaunchArgument(
             "random_injection_max_ratio",
             default_value="0.25",
-        ),  # 随机重注入粒子比例上限
-        DeclareLaunchArgument("off_map_penalty", default_value="1.0"),  # 点落到地图外时的距离惩罚，单位米
-        DeclareLaunchArgument("occupancy_threshold", default_value="50"),  # 地图栅格判定为线的阈值
+        ),  # Upper bound for random particle reinjection ratio
+        DeclareLaunchArgument("off_map_penalty", default_value="1.0"),  # Off-map penalty in meters
+        DeclareLaunchArgument("occupancy_threshold", default_value="50"),  # Map occupancy threshold
         DeclareLaunchArgument(
             "distance_transform_mask_size",
             default_value="5",
-        ),  # 距离变换 mask size，建议 3 或 5
-        DeclareLaunchArgument("init_field_width", default_value="2.0"),  # 初始撒粒子宽度，单位米
-        DeclareLaunchArgument("init_field_height", default_value="3.0"),  # 初始撒粒子高度，单位米
-        DeclareLaunchArgument("filter_period_ms", default_value="100"),  # 滤波循环周期，单位毫秒
+        ),  # Distance transform mask size
+        DeclareLaunchArgument("init_field_width", default_value="2.0"),  # Initial particle field width in meters
+        DeclareLaunchArgument("init_field_height", default_value="3.0"),  # Initial particle field height in meters
+        DeclareLaunchArgument("filter_period_ms", default_value="100"),  # PF timer period in milliseconds
         DeclareLaunchArgument(
             "topdown_pf_publish_processing_time", default_value="true"
-        ),  # 是否发布 PF 处理时长
+        ),  # Publish PF processing time
         DeclareLaunchArgument(
             "topdown_pf_processing_time_topic",
             default_value="~/processing_time_ms",
-        ),  # PF 处理时长话题名
+        ),  # PF processing time topic name
         DeclareLaunchArgument(
             "topdown_pf_enable_timing_log", default_value="true"
-        ),  # 是否打印 PF 处理时长日志
+        ),  # Enable PF timing logs
         DeclareLaunchArgument(
             "topdown_pf_timing_log_interval", default_value="30"
-        ),  # PF 处理时长日志输出间隔
-        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("camera_show_published_image", default_value="true"),
-        DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("remap_show_input_image", default_value="false"),
-        DeclareLaunchArgument("remap_show_output_image", default_value="true"),
-        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),
-        DeclareLaunchArgument("morph_show_input_image", default_value="false"),
-        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),
-        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),
-        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),
-        DeclareLaunchArgument("skeleton_enable_image_view", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="false"),
+        ),  # PF timing log frame interval
+        DeclareLaunchArgument("camera_enable_image_view", default_value="false"),  # Show camera debug window
+        DeclareLaunchArgument("camera_show_published_image", default_value="true"),  # Show the camera output image
+        DeclareLaunchArgument("remap_enable_image_view", default_value="false"),  # Show remap debug windows
+        DeclareLaunchArgument("remap_show_input_image", default_value="false"),  # Show the remap input image
+        DeclareLaunchArgument("remap_show_output_image", default_value="true"),  # Show the remap output image
+        DeclareLaunchArgument("morph_enable_image_view", default_value="false"),  # Show morph debug windows
+        DeclareLaunchArgument("morph_show_input_image", default_value="false"),  # Show the morph input image
+        DeclareLaunchArgument("morph_show_white_candidate_mask", default_value="false"),  # Show the white candidate mask
+        DeclareLaunchArgument("morph_show_white_morph_mask", default_value="true"),  # Show the morph output mask
+        DeclareLaunchArgument("morph_show_green_mask", default_value="false"),  # Show the green mask
+        DeclareLaunchArgument("morph_show_black_mask", default_value="false"),  # Show the black mask
+        DeclareLaunchArgument("morph_show_noise_mask", default_value="false"),  # Show the noise mask
+        DeclareLaunchArgument("morph_show_debug_image", default_value="false"),  # Show the morph debug image
+        DeclareLaunchArgument("morph_enable_timing_debug", default_value="false"),  # Enable morph timing logs
+        DeclareLaunchArgument("morph_timing_summary_interval", default_value="10"),  # Morph timing summary frame interval
+        DeclareLaunchArgument("skeleton_enable_image_view", default_value="true"),  # Show skeleton debug windows
+        DeclareLaunchArgument("skeleton_show_morph_mask", default_value="true"),  # Show the skeleton input morph mask
+        DeclareLaunchArgument("skeleton_show_green_mask", default_value="false"),  # Show the skeleton green mask
+        DeclareLaunchArgument("skeleton_show_black_mask", default_value="false"),  # Show the skeleton black mask
+        DeclareLaunchArgument("skeleton_show_noise_mask", default_value="false"),  # Show the skeleton noise mask
+        DeclareLaunchArgument("skeleton_show_skeleton_mask", default_value="true"),  # Show the raw skeleton mask
+        DeclareLaunchArgument("skeleton_show_orientation_valid_mask", default_value="false"),  # Show the orientation-valid mask
+        DeclareLaunchArgument("skeleton_show_side_support_mask", default_value="true"),  # Show the side-support mask
+        DeclareLaunchArgument("skeleton_show_width_supported_skeleton_mask", default_value="true"),  # Show the width-filtered skeleton
+        DeclareLaunchArgument("skeleton_show_supported_skeleton_mask", default_value="false"),  # Deprecated alias for the length-filtered skeleton view
         DeclareLaunchArgument(
             "skeleton_show_length_filtered_skeleton_mask",
             default_value=LaunchConfiguration("skeleton_show_supported_skeleton_mask"),
-        ),
-        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="false"),
-        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),
-        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),
-        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),
+        ),  # Show the length-filtered skeleton
+        DeclareLaunchArgument("skeleton_show_reconstructed_mask", default_value="false"),  # Show the reconstructed white mask
+        DeclareLaunchArgument("skeleton_show_white_final_mask", default_value="true"),  # Show the final white mask
+        DeclareLaunchArgument("skeleton_show_white_mask", default_value="__unset__"),  # Deprecated alias for the final white mask view
+        DeclareLaunchArgument("skeleton_show_debug_image", default_value="false"),  # Show the skeleton debug mosaic
+        DeclareLaunchArgument("skeleton_enable_timing_debug", default_value="false"),  # Enable skeleton timing logs
+        DeclareLaunchArgument("skeleton_timing_summary_interval", default_value="10"),  # Skeleton timing summary frame interval
     ]
 
     return LaunchDescription(
@@ -277,6 +281,10 @@ def generate_launch_description():
                         "show_black_mask": LaunchConfiguration("morph_show_black_mask"),
                         "show_noise_mask": LaunchConfiguration("morph_show_noise_mask"),
                         "show_debug_image": LaunchConfiguration("morph_show_debug_image"),
+                        "enable_timing_debug": LaunchConfiguration("morph_enable_timing_debug"),
+                        "timing_summary_interval": LaunchConfiguration(
+                            "morph_timing_summary_interval"
+                        ),
                     }
                 ],
             ),
@@ -320,6 +328,12 @@ def generate_launch_description():
                         ),
                         "show_white_final_mask": skeleton_show_white_final_mask,
                         "show_debug_image": LaunchConfiguration("skeleton_show_debug_image"),
+                        "enable_timing_debug": LaunchConfiguration(
+                            "skeleton_enable_timing_debug"
+                        ),
+                        "timing_summary_interval": LaunchConfiguration(
+                            "skeleton_timing_summary_interval"
+                        ),
                     }
                 ],
             ),

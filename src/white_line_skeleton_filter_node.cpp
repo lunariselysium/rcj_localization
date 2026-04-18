@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -36,7 +37,7 @@ constexpr char kLengthFilteredSkeletonWindow[] = "Skeleton Filter Length-Filtere
 constexpr char kReconstructedWindow[] = "Skeleton Filter Reconstruction";
 constexpr char kWhiteFinalMaskWindow[] = "Skeleton Filter White Final Mask";
 constexpr char kDebugWindow[] = "Skeleton Filter Composite Debug";
-constexpr bool kDefaultShowLengthFilteredSkeletonMask = true;
+    constexpr bool kDefaultShowLengthFilteredSkeletonMask = true;
 
 cv::Size fitWithinBounds(const cv::Size &image_size, int max_width, int max_height) {
     const int safe_max_width = std::max(1, max_width);
@@ -391,6 +392,8 @@ public:
         this->declare_parameter("show_white_final_mask", true);
         this->declare_parameter("show_white_mask", true);
         this->declare_parameter("show_debug_image", true);
+        this->declare_parameter("enable_timing_debug", false);
+        this->declare_parameter("timing_summary_interval", 10);
         this->declare_parameter("display_max_width", 960);
         this->declare_parameter("display_max_height", 720);
 
@@ -418,8 +421,11 @@ public:
 
         RCLCPP_INFO(
             this->get_logger(),
-            "white_line_skeleton_filter_node started. enable_image_view=%s. Waiting for morph masks on '%s'.",
+            "white_line_skeleton_filter_node started. enable_image_view=%s, "
+            "enable_timing_debug=%s, timing_summary_interval=%d. Waiting for morph masks on '%s'.",
             enable_image_view_ ? "true" : "false",
+            enable_timing_debug_ ? "true" : "false",
+            timing_summary_interval_,
             morph_mask_topic_.c_str());
     }
 
@@ -478,6 +484,7 @@ private:
     bool show_reconstructed_mask_ = true;
     bool show_white_final_mask_ = true;
     bool show_debug_image_ = true;
+    bool enable_timing_debug_ = false;
     bool morph_window_created_ = false;
     bool green_window_created_ = false;
     bool black_window_created_ = false;
@@ -496,7 +503,11 @@ private:
     int display_max_width_ = 960;
     int display_max_height_ = 720;
     unsigned long long frame_count_ = 0;
-    long long total_skeleton_time_us_ = 0;
+    int timing_summary_interval_ = 10;
+    std::size_t timing_frames_in_interval_ = 0;
+    unsigned long long timing_interval_start_frame_ = 0;
+    long long timing_interval_total_us_ = 0;
+    long long timing_interval_max_us_ = 0;
 
     bool isParameterOverridden(const char *name) {
         const auto &overrides = this->get_node_parameters_interface()->get_parameter_overrides();
@@ -616,9 +627,51 @@ private:
         show_reconstructed_mask_ = this->get_parameter("show_reconstructed_mask").as_bool();
         show_white_final_mask_ = loadWhiteFinalMaskToggle();
         show_debug_image_ = this->get_parameter("show_debug_image").as_bool();
+        enable_timing_debug_ = this->get_parameter("enable_timing_debug").as_bool();
+        timing_summary_interval_ =
+            std::max(1, static_cast<int>(this->get_parameter("timing_summary_interval").as_int()));
         display_max_width_ = std::max(1, static_cast<int>(this->get_parameter("display_max_width").as_int()));
         display_max_height_ =
             std::max(1, static_cast<int>(this->get_parameter("display_max_height").as_int()));
+    }
+
+    void resetTimingSummary() {
+        timing_frames_in_interval_ = 0;
+        timing_interval_start_frame_ = 0;
+        timing_interval_total_us_ = 0;
+        timing_interval_max_us_ = 0;
+    }
+
+    void maybeLogTimingSummary(long long skeleton_duration_us, unsigned long long current_frame_index) {
+        if (!enable_timing_debug_) {
+            return;
+        }
+
+        if (timing_frames_in_interval_ == 0U) {
+            timing_interval_start_frame_ = current_frame_index;
+        }
+
+        ++timing_frames_in_interval_;
+        timing_interval_total_us_ += skeleton_duration_us;
+        timing_interval_max_us_ = std::max(timing_interval_max_us_, skeleton_duration_us);
+
+        if (timing_frames_in_interval_ < static_cast<std::size_t>(timing_summary_interval_)) {
+            return;
+        }
+
+        const double avg_ms =
+            static_cast<double>(timing_interval_total_us_) /
+            static_cast<double>(timing_frames_in_interval_) / 1000.0;
+
+        std::ostringstream oss;
+        oss << "Skeleton profiling summary: frames=" << timing_interval_start_frame_ << "-"
+            << current_frame_index << " (" << timing_frames_in_interval_ << " frames)"
+            << ", last_ms=" << static_cast<double>(skeleton_duration_us) / 1000.0
+            << ", avg_ms=" << avg_ms
+            << ", max_ms=" << static_cast<double>(timing_interval_max_us_) / 1000.0;
+        RCLCPP_INFO_STREAM(this->get_logger(), oss.str());
+
+        resetTimingSummary();
     }
 
     bool anyImageWindowRequested() const {
@@ -850,7 +903,13 @@ private:
         const ImageMsg::ConstSharedPtr &green_msg,
         const ImageMsg::ConstSharedPtr &black_msg,
         const ImageMsg::ConstSharedPtr &noise_msg) {
+        const bool previous_timing_debug = enable_timing_debug_;
+        const int previous_timing_summary_interval = timing_summary_interval_;
         syncImageViewState();
+        if (previous_timing_debug != enable_timing_debug_ ||
+            previous_timing_summary_interval != timing_summary_interval_) {
+            resetTimingSummary();
+        }
 
         cv::Mat morph_mask;
         cv::Mat green_mask;
@@ -1018,10 +1077,7 @@ private:
         const auto skeleton_end = std::chrono::steady_clock::now();
         const auto skeleton_duration_us =
             std::chrono::duration_cast<std::chrono::microseconds>(skeleton_end - skeleton_start).count();
-        ++frame_count_;
-        total_skeleton_time_us_ += skeleton_duration_us;
-        const double average_skeleton_us =
-            static_cast<double>(total_skeleton_time_us_) / static_cast<double>(frame_count_);
+        const unsigned long long current_frame_index = ++frame_count_;
 
         publishAndDisplay(
             morph_msg->header,
@@ -1037,13 +1093,7 @@ private:
             black_mask,
             noise_mask);
 
-        RCLCPP_INFO(
-            this->get_logger(),
-            "frame=%llu skeleton_us=%lld skeleton_ms=%.3f avg_skeleton_ms=%.3f",
-            static_cast<unsigned long long>(frame_count_),
-            static_cast<long long>(skeleton_duration_us),
-            static_cast<double>(skeleton_duration_us) / 1000.0,
-            average_skeleton_us / 1000.0);
+        maybeLogTimingSummary(skeleton_duration_us, current_frame_index);
     }
 };
 

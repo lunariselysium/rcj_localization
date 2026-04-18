@@ -33,20 +33,20 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),
-            DeclareLaunchArgument("baudrate", default_value="115200"),
-            DeclareLaunchArgument("timeout_sec", default_value="1.0"),
-            DeclareLaunchArgument("frame_id", default_value="camera"),
-            DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
-            DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
-            DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-            DeclareLaunchArgument("use_latest_fastmap", default_value="true"),
-            DeclareLaunchArgument("fastmap_file", default_value=""),
-            DeclareLaunchArgument("input_transport", default_value="raw"),
-            DeclareLaunchArgument("interpolation", default_value="linear"),
-            DeclareLaunchArgument("remap_enable_image_view", default_value="true"),
-            DeclareLaunchArgument("remap_show_input_image", default_value="true"),
-            DeclareLaunchArgument("remap_show_output_image", default_value="true"),
+            DeclareLaunchArgument("port", default_value="/dev/ttyACM0"),  # Serial port for the camera publisher
+            DeclareLaunchArgument("baudrate", default_value="115200"),  # Serial baudrate
+            DeclareLaunchArgument("timeout_sec", default_value="1.0"),  # Serial read timeout in seconds
+            DeclareLaunchArgument("frame_id", default_value="camera"),  # Frame id for published images
+            DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),  # Camera info topic
+            DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),  # Raw input image topic
+            DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),  # Remapped output image topic
+            DeclareLaunchArgument("use_latest_fastmap", default_value="true"),  # Auto-select the newest fastmap file
+            DeclareLaunchArgument("fastmap_file", default_value=""),  # Fastmap XML path when auto-select is off
+            DeclareLaunchArgument("input_transport", default_value="raw"),  # Input transport for the remap node
+            DeclareLaunchArgument("interpolation", default_value="linear"),  # Remap interpolation mode
+            DeclareLaunchArgument("remap_enable_image_view", default_value="true"),  # Show remap debug windows
+            DeclareLaunchArgument("remap_show_input_image", default_value="true"),  # Show the remap input image
+            DeclareLaunchArgument("remap_show_output_image", default_value="true"),  # Show the remap output image
             Node(
                 package="rcj_localization",
                 executable="image_publisher.py",

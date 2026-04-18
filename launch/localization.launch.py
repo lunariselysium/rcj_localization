@@ -17,7 +17,7 @@ def generate_launch_description():
             package='nav2_map_server',
             executable='map_server',
             name='map_server',
-            parameters=[{'yaml_filename': map_file_path}]
+            parameters=[{'yaml_filename': map_file_path}]  # Map YAML file path
         ),
 
         # Start Lifecycle Manager to activate Map Server
@@ -26,7 +26,7 @@ def generate_launch_description():
             executable='lifecycle_manager',
             name='lifecycle_manager_localization',
             output='screen',
-            parameters=[{'autostart': True, 'node_names': ['map_server']}]
+            parameters=[{'autostart': True, 'node_names': ['map_server']}]  # Autostart and manage the map server lifecycle
         ),
 
         # Start Localization Node
@@ -35,6 +35,6 @@ def generate_launch_description():
             executable='localization_node',
             name='localization_node',
             output='screen',
-            parameters=[{'num_particles': 1000}]
+            parameters=[{'num_particles': 1000}]  # Particle filter particle count
         ),
     ])

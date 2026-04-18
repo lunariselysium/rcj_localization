@@ -127,26 +127,26 @@ def generate_launch_description():
     )
     return LaunchDescription(
         [
-            DeclareLaunchArgument("camera_index", default_value="0"),
-            DeclareLaunchArgument("role", default_value="viewfinder"),
-            DeclareLaunchArgument("format", default_value="RGB888"),
-            DeclareLaunchArgument("width", default_value="800"),
-            DeclareLaunchArgument("height", default_value="600"),
-            DeclareLaunchArgument("orientation", default_value="0"),
-            DeclareLaunchArgument("sensor_mode", default_value="1332:990"),
-            DeclareLaunchArgument("frame_id", default_value="camera"),
-            DeclareLaunchArgument("camera_info_url", default_value=""),
-            DeclareLaunchArgument("use_node_time", default_value="false"),
-            DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),
-            DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),
-            DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),
-            DeclareLaunchArgument("use_latest_fastmap", default_value="false"),
-            DeclareLaunchArgument("fastmap_file", default_value=pinned_fastmap_default),
-            DeclareLaunchArgument("input_transport", default_value="raw"),
-            DeclareLaunchArgument("interpolation", default_value="linear"),
-            DeclareLaunchArgument("remap_enable_image_view", default_value="false"),
-            DeclareLaunchArgument("remap_show_input_image", default_value="true"),
-            DeclareLaunchArgument("remap_show_output_image", default_value="true"),
+            DeclareLaunchArgument("camera_index", default_value="0"),  # Camera index
+            DeclareLaunchArgument("role", default_value="viewfinder"),  # camera_ros role
+            DeclareLaunchArgument("format", default_value="RGB888"),  # Camera pixel format
+            DeclareLaunchArgument("width", default_value="800"),  # Capture width, empty means use fastmap source width
+            DeclareLaunchArgument("height", default_value="600"),  # Capture height, empty means use fastmap source height
+            DeclareLaunchArgument("orientation", default_value="0"),  # Camera rotation angle
+            DeclareLaunchArgument("sensor_mode", default_value="1332:990"),  # Camera sensor mode
+            DeclareLaunchArgument("frame_id", default_value="camera"),  # Image frame id
+            DeclareLaunchArgument("camera_info_url", default_value=""),  # Camera calibration URL
+            DeclareLaunchArgument("use_node_time", default_value="false"),  # Use node time instead of sensor timestamps
+            DeclareLaunchArgument("camera_info_topic", default_value="/camera/camera_info"),  # Camera info topic
+            DeclareLaunchArgument("input_topic", default_value="/camera/image_raw"),  # Raw image topic
+            DeclareLaunchArgument("output_topic", default_value="/camera/image_remapped"),  # Remapped image topic
+            DeclareLaunchArgument("use_latest_fastmap", default_value="false"),  # Auto-select the latest fastmap XML
+            DeclareLaunchArgument("fastmap_file", default_value=pinned_fastmap_default),  # Specific fastmap XML path
+            DeclareLaunchArgument("input_transport", default_value="raw"),  # Remap input transport
+            DeclareLaunchArgument("interpolation", default_value="linear"),  # Remap interpolation mode
+            DeclareLaunchArgument("remap_enable_image_view", default_value="false"),  # Show remap debug windows
+            DeclareLaunchArgument("remap_show_input_image", default_value="true"),  # Show the remap input image
+            DeclareLaunchArgument("remap_show_output_image", default_value="true"),  # Show the remap output image
             OpaqueFunction(function=build_nodes),
         ]
     )
